@@ -243,6 +243,13 @@ class QueueManager:
             item = self.repository.get(item_id)
             if item is None or item.status is DownloadStatus.COMPLETED:
                 return item
+            if item.status is DownloadStatus.CANCELLED:
+                # Starting a selected cancelled row is an explicit retry. Reset
+                # the persisted cancel request before its worker starts so fresh
+                # snapshots belong to the new attempt.
+                item = self.retry(item_id)
+                if item is None:
+                    return None
             archived = self.archive.contains(item.video_id, item.source_url)
             if skip_archived and archived:
                 return self.mark_skipped(item_id, "Already downloaded")

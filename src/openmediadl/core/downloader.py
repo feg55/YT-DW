@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import logging
 import shutil
+import subprocess
 import threading
 import time
 from collections.abc import Callable, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
 import yt_dlp
+from yt_dlp.downloader import external as ytdlp_external
 from yt_dlp.utils import DownloadCancelled
+from yt_dlp.utils import Popen as YtdlpPopen
 
 from openmediadl.core.error_mapper import ErrorCategory, MappedError, map_error
 from openmediadl.core.filename_service import ensure_unique_path
@@ -31,6 +35,71 @@ LOGGER = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[DownloadItem, ProgressSnapshot], None]
 PhaseCallback = Callable[[DownloadItem, str], None]
+
+_FFMPEG_CANCEL_EVENT: ContextVar[threading.Event | None] = ContextVar(
+    "openmediadl_ffmpeg_cancel_event",
+    default=None,
+)
+
+
+class _CancellableFFmpegPopen(YtdlpPopen):
+    """Poll only OpenMediaDL's active fallback FFmpeg for cancellation."""
+
+    _POLL_INTERVAL = 0.1
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._cancelled_by_openmediadl = False
+
+    def wait(self, timeout: float | None = None) -> int:
+        cancel_event = _FFMPEG_CANCEL_EVENT.get()
+        if cancel_event is None or self._cancelled_by_openmediadl:
+            return super().wait(timeout=timeout)
+
+        deadline = time.monotonic() + timeout if timeout is not None else None
+        while True:
+            return_code = self.poll()
+            if return_code is not None:
+                return return_code
+            if cancel_event.is_set():
+                self._cancelled_by_openmediadl = True
+                # This process handle belongs to the current fallback. Never
+                # enumerate or terminate other ffmpeg processes by name.
+                try:
+                    YtdlpPopen.kill(self, timeout=0)
+                except ProcessLookupError:
+                    pass
+                subprocess.Popen.wait(self)
+                raise DownloadCancelled()
+
+            wait_for = self._POLL_INTERVAL
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(
+                        self.args,
+                        timeout if timeout is not None else 0.0,
+                    )
+                wait_for = min(wait_for, remaining)
+            try:
+                return super().wait(timeout=wait_for)
+            except subprocess.TimeoutExpired:
+                continue
+
+    def kill(self, *, timeout: float | None = 0) -> None:
+        """Keep yt-dlp's cleanup idempotent after cancellation reaped the child."""
+
+        if self.poll() is None:
+            super().kill(timeout=timeout)
+        elif timeout != 0:
+            subprocess.Popen.wait(self, timeout=timeout)
+
+
+def _enable_cancellable_external_ffmpeg() -> None:
+    """Install a thread-scoped wait adapter for yt-dlp's external downloaders."""
+
+    if ytdlp_external.Popen is not _CancellableFFmpegPopen:
+        ytdlp_external.Popen = _CancellableFFmpegPopen
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,8 +195,7 @@ class Downloader:
         options = self._options(item, final)
         output: Path | None = None
         try:
-            with yt_dlp.YoutubeDL(options) as ydl:
-                info = ydl.extract_info(item.source_url, download=True)
+            info = self._download_info(item, options)
             if self.cancel_event.is_set():
                 raise DownloadCancelled()
             output = self._locate_output(final, info)
@@ -164,6 +232,65 @@ class Downloader:
         except Exception as error:
             raise DownloadPipelineError(map_error(error), output) from error
 
+    def _download_info(self, item: DownloadItem, options: dict[str, Any]) -> Any:
+        """Download once natively, retrying audio HTTP 403s through FFmpeg."""
+
+        try:
+            return self._extract_info(item.source_url, options)
+        except Exception as error:
+            if item.download_mode is not DownloadMode.AUDIO or not _is_http_forbidden(error):
+                raise
+            if self.cancel_event.is_set():
+                raise DownloadCancelled() from error
+
+            # The native downloader provides useful byte-level progress, so it
+            # remains the normal path. FFmpeg is only used for the YouTube media
+            # URL variant that rejected that first request with HTTP 403.
+            LOGGER.warning(
+                "Native audio download returned HTTP 403 for %s; retrying through FFmpeg",
+                item.source_url,
+            )
+            self._reset_for_ffmpeg_fallback(item)
+            fallback_options = dict(options)
+            fallback_options["external_downloader"] = {"default": "ffmpeg"}
+            _enable_cancellable_external_ffmpeg()
+            token = _FFMPEG_CANCEL_EVENT.set(self.cancel_event)
+            try:
+                return self._extract_info(item.source_url, fallback_options)
+            finally:
+                _FFMPEG_CANCEL_EVENT.reset(token)
+
+    def _reset_for_ffmpeg_fallback(self, item: DownloadItem) -> None:
+        """Clear stale native-download telemetry before the fallback starts."""
+
+        item.progress_percentage = 0.0
+        item.downloaded_bytes = 0
+        item.total_bytes = None
+        item.speed = None
+        item.eta = None
+        item.current_phase = "Retrying with FFmpeg"
+        item.touch()
+        self._last_progress_emit = 0.0
+        if self.progress_callback:
+            self.progress_callback(
+                item,
+                ProgressSnapshot(
+                    status="downloading",
+                    phase=item.current_phase,
+                    percentage=0.0,
+                    downloaded_bytes=0,
+                    total_bytes=None,
+                    speed=None,
+                    eta=None,
+                    filename=None,
+                ),
+            )
+
+    @staticmethod
+    def _extract_info(source_url: str, options: dict[str, Any]) -> Any:
+        with yt_dlp.YoutubeDL(options) as ydl:
+            return ydl.extract_info(source_url, download=True)
+
     def _options(self, item: DownloadItem, final: Path) -> dict[str, Any]:
         base = final.with_suffix("")
         options: dict[str, Any] = {
@@ -193,9 +320,15 @@ class Downloader:
                 cookie += (self.download_settings.cookie_profile,)
             options["cookiesfrombrowser"] = cookie
         if item.download_mode is DownloadMode.AUDIO:
-            options["format"] = "m4a/bestaudio[ext=m4a]/bestaudio"
+            # Match `yt-dlp -x --audio-format m4a`: select the best source
+            # audio first, then let FFmpeg produce the requested M4A container.
+            options["format"] = "bestaudio/best"
             options["postprocessors"] = [
-                {"key": "FFmpegExtractAudio", "preferredcodec": "m4a"},
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "m4a",
+                    "preferredquality": "5",
+                },
             ]
         else:
             options["format"] = _video_format(self.download_settings.video_quality)
@@ -427,6 +560,35 @@ def _postprocessor_phase(name: str) -> str:
     if "thumbnail" in lowered:
         return "Embedding cover"
     return "Processing"
+
+
+def _is_http_forbidden(error: BaseException) -> bool:
+    """Recognize yt-dlp's wrapped and direct HTTP 403 failures."""
+
+    pending: list[BaseException] = [error]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+
+        status = getattr(current, "code", None) or getattr(current, "status", None)
+        text = str(current).casefold()
+        if status == 403 or "http error 403" in text or (
+            "403" in text and "forbidden" in text
+        ):
+            return True
+
+        for linked in (current.__cause__, current.__context__):
+            if isinstance(linked, BaseException):
+                pending.append(linked)
+        exc_info = getattr(current, "exc_info", None)
+        if isinstance(exc_info, tuple) and len(exc_info) > 1:
+            original = exc_info[1]
+            if isinstance(original, BaseException):
+                pending.append(original)
+    return False
 
 
 def _quality_warning(info: object, quality: VideoQuality) -> str:

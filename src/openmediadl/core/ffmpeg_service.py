@@ -5,8 +5,11 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import threading
 from dataclasses import dataclass
 from pathlib import Path
+
+_PATH_UPDATE_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +45,7 @@ class FFmpegService:
                 directory / f"ffmpeg{suffix}", directory / f"ffprobe{suffix}"
             )
             if installation.available:
+                self.ensure_on_path(directory)
                 return installation
 
         ffmpeg = shutil.which("ffmpeg")
@@ -49,6 +53,24 @@ class FFmpegService:
         return self._from_paths(
             Path(ffmpeg) if ffmpeg else None, Path(ffprobe) if ffprobe else None
         )
+
+    @staticmethod
+    def ensure_on_path(directory: str | Path) -> Path:
+        """Prepend a tool directory to process PATH once and return its absolute path."""
+
+        resolved = Path(directory).expanduser().resolve()
+        target_key = _path_key(resolved)
+        with _PATH_UPDATE_LOCK:
+            current = os.environ.get("PATH", "")
+            if any(
+                entry and _path_key(entry) == target_key
+                for entry in current.split(os.pathsep)
+            ):
+                return resolved
+            os.environ["PATH"] = (
+                f"{resolved}{os.pathsep}{current}" if current else str(resolved)
+            )
+        return resolved
 
     def _from_paths(self, ffmpeg: Path | None, ffprobe: Path | None) -> FFmpegInstallation:
         ffmpeg_version = self._version(ffmpeg) if ffmpeg else ""
@@ -78,3 +100,10 @@ class FFmpegService:
         if result.returncode != 0:
             return ""
         return (result.stdout or result.stderr).splitlines()[0].strip()
+
+
+def _path_key(value: str | Path) -> str:
+    """Return a platform-aware identity for comparing PATH entries."""
+
+    text = os.path.expandvars(os.fspath(value)).strip('"')
+    return os.path.normcase(os.path.realpath(os.path.abspath(os.path.expanduser(text))))

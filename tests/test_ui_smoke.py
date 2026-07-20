@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -289,6 +290,73 @@ def test_mode_change_only_affects_future_analysis(tmp_path: Path) -> None:
 
     assert window.queue_model.items[0].to_record() == before
     assert window.queue_manager.get(item.id).to_record() == before  # type: ignore[union-attr]
+
+    _close(window, database)
+    del app
+
+
+def test_terminal_worker_updates_replace_cancelled_rows(tmp_path: Path) -> None:
+    app = QApplication.instance() or QApplication([])
+    paths = _paths(tmp_path)
+    database = Database(paths.database_file)
+    window = _window(paths, database)
+    completed_item = window.queue_manager.add(_ready_item(tmp_path / "completed"))
+    failed_item = window.queue_manager.add(
+        DownloadItem.new(
+            "https://example.com/watch?v=failed-after-cancel",
+            video_id="failed-after-cancel",
+            original_title="Failed after cancel",
+            cleaned_title="Failed after cancel",
+            final_media_path=str(tmp_path / "failed" / "Failed after cancel.m4a"),
+            status=DownloadStatus.READY,
+        )
+    )
+    window.queue_model.add_items([completed_item, failed_item])
+
+    cancelled_completed = window.queue_manager.cancel(completed_item.id)
+    cancelled_failed = window.queue_manager.cancel(failed_item.id)
+    assert cancelled_completed is not None
+    assert cancelled_failed is not None
+    window.queue_model.update_item(cancelled_completed)
+    window.queue_model.update_item(cancelled_failed)
+
+    completed_snapshot = deepcopy(cancelled_completed)
+    completed_snapshot.status = DownloadStatus.COMPLETED
+    completed_snapshot.progress_percentage = 100.0
+    completed_snapshot.current_phase = "Completed"
+    window._on_item_updated(completed_snapshot)
+
+    failed_snapshot = deepcopy(cancelled_failed)
+    failed_snapshot.status = DownloadStatus.FAILED
+    failed_snapshot.error_category = "network_error"
+    failed_snapshot.error_message = "HTTP 403: Forbidden"
+    failed_snapshot.technical_error = "fixture failure"
+    failed_snapshot.current_phase = "Failed"
+    window._on_item_updated(failed_snapshot)
+
+    displayed_completed = window.queue_model.item_by_id(completed_item.id)
+    displayed_failed = window.queue_model.item_by_id(failed_item.id)
+    assert displayed_completed is not None
+    assert displayed_completed.status is DownloadStatus.COMPLETED
+    assert displayed_completed.progress_percentage == 100.0
+    assert displayed_failed is not None
+    assert displayed_failed.status is DownloadStatus.FAILED
+    failed_row = window.queue_model.items.index(displayed_failed)
+    assert (
+        window.queue_model.data(
+            window.queue_model.index(failed_row, int(Column.PROGRESS)),
+            Qt.ItemDataRole.DisplayRole,
+        )
+        == "HTTP 403: Forbidden"
+    )
+
+    persisted_completed = window.queue_manager.get(completed_item.id)
+    persisted_failed = window.queue_manager.get(failed_item.id)
+    assert persisted_completed is not None
+    assert persisted_completed.status is DownloadStatus.COMPLETED
+    assert persisted_failed is not None
+    assert persisted_failed.status is DownloadStatus.FAILED
+    assert persisted_failed.error_message == "HTTP 403: Forbidden"
 
     _close(window, database)
     del app

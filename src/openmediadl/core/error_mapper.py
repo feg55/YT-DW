@@ -15,6 +15,7 @@ class ErrorCategory(StrEnum):
     PRIVATE_CONTENT = "private_content"
     AUTHENTICATION_REQUIRED = "authentication_required"
     RATE_LIMITED = "rate_limited"
+    HTTP_FORBIDDEN = "http_forbidden"
     NETWORK_TIMEOUT = "network_timeout"
     DISK_FULL = "disk_full"
     PERMISSION_DENIED = "permission_denied"
@@ -75,6 +76,16 @@ _TEXT_PATTERNS: Final[tuple[tuple[tuple[str, ...], ErrorCategory, str], ...]] = 
         ("too many requests",),
         ErrorCategory.RATE_LIMITED,
         "The service is rate limiting requests. Try again later.",
+    ),
+    (
+        ("http error 403",),
+        ErrorCategory.HTTP_FORBIDDEN,
+        "The media server denied access (HTTP 403). Try again later or use browser cookies.",
+    ),
+    (
+        ("403", "forbidden"),
+        ErrorCategory.HTTP_FORBIDDEN,
+        "The media server denied access (HTTP 403). Try again later or use browser cookies.",
     ),
     (("timed out",), ErrorCategory.NETWORK_TIMEOUT, "The network request timed out."),
     (("timeout",), ErrorCategory.NETWORK_TIMEOUT, "The network request timed out."),

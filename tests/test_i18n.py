@@ -48,9 +48,11 @@ def test_explicit_language_does_not_depend_on_system_locale() -> None:
 def test_catalog_switches_language_at_runtime() -> None:
     catalog = TranslationCatalog(LanguagePreference.ENGLISH)
     assert catalog.tr("action.analyze") == "Analyze"
+    assert catalog.tr("phase.retrying_ffmpeg") == "Retrying with FFmpeg"
 
     assert catalog.set_language(LanguagePreference.RUSSIAN)
     assert catalog.tr("action.analyze") == "Анализировать"
+    assert catalog.tr("phase.retrying_ffmpeg") == "Повтор загрузки через FFmpeg"
     assert catalog.language is LanguagePreference.RUSSIAN
 
 

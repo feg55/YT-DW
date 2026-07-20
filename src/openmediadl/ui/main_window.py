@@ -449,6 +449,7 @@ class MainWindow(QMainWindow):
             "Finishing thumbnails": "phase.finishing_thumbnails",
             "Merging": "phase.merging",
             "Processing": "phase.processing",
+            "Retrying with FFmpeg": "phase.retrying_ffmpeg",
             "Verifying output": "phase.verifying_output",
             "Writing metadata": "phase.writing_metadata",
         }
@@ -839,7 +840,8 @@ class MainWindow(QMainWindow):
             )
             return
         if installation.directory is not None:
-            downloads.ffmpeg_directory = str(installation.directory)
+            ffmpeg_directory = self.ffmpeg_service.ensure_on_path(installation.directory)
+            downloads.ffmpeg_directory = str(ffmpeg_directory)
         self._download_worker = DownloadQueueWorker(
             candidates, downloads, metadata, self.paths.archive_file
         )
@@ -870,9 +872,10 @@ class MainWindow(QMainWindow):
         if (
             current is not None
             and current.status is DownloadStatus.CANCELLED
-            and item.status is not DownloadStatus.CANCELLED
+            and not item.status.is_terminal
         ):
-            # Cancellation is authoritative; ignore queued pre-cancel snapshots.
+            # Ignore nonterminal snapshots queued around a cancel request. A terminal
+            # completion/failure is still the truthful outcome and is accepted.
             return
         self.queue_model.update_item(item)
         now = time.monotonic()

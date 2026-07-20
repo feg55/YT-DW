@@ -123,6 +123,40 @@ def test_stale_active_snapshot_cannot_resurrect_cancelled_item(tmp_path: Path) -
     assert manager.get(item.id).status is DownloadStatus.CANCELLED  # type: ignore[union-attr]
 
 
+def test_terminal_worker_snapshot_replaces_cancelled_state(tmp_path: Path) -> None:
+    manager = QueueManager(tmp_path / "queue.sqlite3")
+    item = manager.add(_item("cancel-completed", DownloadStatus.READY), skip_if_archived=False)
+    cancelled = manager.cancel(item.id)
+    assert cancelled is not None
+
+    completed = deepcopy(cancelled)
+    completed.status = DownloadStatus.COMPLETED
+    completed.progress_percentage = 100.0
+    completed.current_phase = "Completed"
+
+    persisted = manager.save(completed)
+
+    assert persisted.status is DownloadStatus.COMPLETED
+    assert persisted.progress_percentage == 100.0
+    restored = manager.get(item.id)
+    assert restored is not None
+    assert restored.status is DownloadStatus.COMPLETED
+    assert restored.progress_percentage == 100.0
+
+
+def test_queue_start_resets_persisted_cancel_request(tmp_path: Path) -> None:
+    manager = QueueManager(tmp_path / "queue.sqlite3")
+    item = manager.add(_item("cancel-retry", DownloadStatus.READY), skip_if_archived=False)
+    manager.cancel(item.id)
+    assert manager.is_cancel_requested(item.id)
+
+    prepared = manager.prepare_for_download(item.id, skip_archived=False)
+
+    assert prepared is not None
+    assert prepared.status is DownloadStatus.READY
+    assert not manager.is_cancel_requested(item.id)
+
+
 def test_retry_retains_metadata_failure_context_until_worker_start(tmp_path: Path) -> None:
     manager = QueueManager(tmp_path / "queue.sqlite3")
     item = manager.add(_item("metadata-retry", DownloadStatus.READY), skip_if_archived=False)

@@ -16,6 +16,18 @@ def test_maps_disk_full_os_error() -> None:
     assert mapped.category is ErrorCategory.DISK_FULL
 
 
+def test_maps_final_http_403_to_actionable_error() -> None:
+    technical = "ERROR: unable to download video data: HTTP Error 403: Forbidden"
+
+    mapped = map_error(technical)
+
+    assert mapped.category is ErrorCategory.HTTP_FORBIDDEN
+    assert mapped.message == (
+        "The media server denied access (HTTP 403). Try again later or use browser cookies."
+    )
+    assert mapped.technical == technical
+
+
 def test_unknown_retains_technical_message() -> None:
     mapped = map_error("extractor exploded in a novel way")
     assert mapped.category is ErrorCategory.UNKNOWN
