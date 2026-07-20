@@ -1,0 +1,104 @@
+# Python bytecode and native extension artifacts
+__pycache__/
+*.py[codz]
+*$py.class
+*.so
+
+# Virtual environments and local environment managers
+.venv/
+.venv*/
+venv/
+env/
+ENV/
+.direnv/
+.python-version
+__pypackages__/
+
+# Test, type-checker, linter, and coverage caches
+.pytest_cache/
+.pytest-tmp/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+.uv-cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+junit.xml
+
+# Packaging and PyInstaller output
+build/
+dist/
+wheelhouse/
+*.egg-info/
+*.egg
+*.whl
+*.manifest
+*.spec.bak
+
+# Local OpenMediaDL state and generated downloads
+/.tmp/
+/.openmediadl/
+/cache/
+/data/
+/downloads/
+/logs/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+*.log
+*.part
+*.part-Frag*
+*.ytdl
+*.temp
+*.aria2
+
+# Local configuration, credentials, and browser exports
+.env
+.env.*
+!.env.example
+.netrc
+.pypirc
+cookies.txt
+cookies-*.txt
+*.cookies.txt
+
+# IDEs, editors, and local agent state
+.agents/
+.codex/
+.idea/
+.vscode/
+*.code-workspace
+*.sublime-workspace
+*.swp
+*.swo
+*~
+
+# Operating-system metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.directory
+.Trash-*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Bundled third-party executables are intentionally not versioned
+/tools/ffmpeg
+/tools/ffmpeg.exe
+/tools/ffprobe
+/tools/ffprobe.exe
+/tools/**/ffmpeg
+/tools/**/ffmpeg.exe
+/tools/**/ffprobe
+/tools/**/ffprobe.exe
+!/tools/README.md
+!/tools/.gitkeep
