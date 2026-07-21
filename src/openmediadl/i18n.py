@@ -14,13 +14,14 @@ Catalog = MappingProxyType[str, str]
 
 _ENGLISH: Final = MappingProxyType(
     {
-        "app.title": "OpenMediaDL",
+        "app.title": "YT-DW",
         "action.analyze": "Analyze",
         "action.browse": "Browse…",
         "action.cancel": "Cancel",
         "action.cancel_all_pending": "Cancel all pending",
         "action.cancel_analysis": "Cancel analysis",
         "action.cancel_selected": "Cancel selected",
+        "action.clear_all": "Clear all",
         "action.close": "Close",
         "action.continue_downloads": "Continue to downloads →",
         "action.download": "Download",
@@ -50,6 +51,10 @@ _ENGLISH: Final = MappingProxyType(
         "log.analysis_completed": "Analysis completed: {count} item(s).",
         "log.analysis_error": "Analysis error: {message}",
         "log.analyzing_urls": "Analyzing {count} URL(s)…",
+        "log.cleared_all": (
+            "Cleared {queue} queue item(s), {history} history entry/entries, and "
+            "{archive} archive entry/entries."
+        ),
         "log.queue_cancelled": "Queue cancelled.",
         "log.queue_finished": "Queue finished.",
         "log.recalculated": "Recalculated metadata for {count} item(s).",
@@ -74,6 +79,18 @@ _ENGLISH: Final = MappingProxyType(
             "supports continuation."
         ),
         "dialog.cancel_queue.title": "Cancel queue",
+        "dialog.clear_all.message": (
+            "Clear the entire queue, download history, and download archive so everything can "
+            "be analyzed and downloaded again? Downloaded media files, pasted URLs, and settings "
+            "will not be deleted."
+        ),
+        "dialog.clear_all.title": "Clear all download state",
+        "dialog.clear_all_active.message": (
+            "Wait for the active analysis or download to finish, or cancel it first."
+        ),
+        "dialog.clear_all_active.title": "Tasks are active",
+        "dialog.clear_all_failed.message": "Download state could not be cleared: {message}",
+        "dialog.clear_all_failed.title": "Could not clear download state",
         "dialog.checking_ffmpeg.message": (
             "FFmpeg is being checked in the background. Start the queue again when the check "
             "finishes."
@@ -109,7 +126,7 @@ _ENGLISH: Final = MappingProxyType(
         "dialog.ffmpeg_stopping.title": "Still checking FFmpeg",
         "notice.legal_full": (
             "Download only content you are permitted to access and save. "
-            "OpenMediaDL does not bypass DRM, paywalls, or access controls."
+            "YT-DW does not bypass DRM, paywalls, or access controls."
         ),
         "placeholder.activity_log": (
             "Activity and concise errors appear here. Full tracebacks are saved in the "
@@ -152,10 +169,14 @@ _ENGLISH: Final = MappingProxyType(
         "settings.browser_profile_placeholder": "Optional browser profile identifier",
         "settings.continue_parts": "Continue supported partial downloads",
         "settings.cookies_browser": "Cookies from browser",
+        "settings.cookies_disabled": "Disabled",
         "settings.cookies_notice": (
-            "OpenMediaDL stores only the selected browser and optional profile name. "
-            "It never reads or logs raw cookie contents itself."
+            "YT-DW reads browser cookies only when an authentication retry is needed. In "
+            "automatic mode it tries the system default, then locally detected Chrome, Firefox, "
+            "Edge, Opera, and other supported browsers. Raw cookie contents are never stored or "
+            "logged. The browser_cookie3 package is not required."
         ),
+        "settings.cookies_system": "Automatic (system browser + fallback)",
         "settings.delay": "Delay between items",
         "settings.ffmpeg_check_after_save": (
             "FFmpeg will be checked in the background after saving."
@@ -192,6 +213,7 @@ _ENGLISH: Final = MappingProxyType(
         "status.analyzed": "Analyzed {current}",
         "status.analyzed_total": "Analyzed {current} / {total}",
         "status.checking_ffmpeg": "Checking FFmpeg/FFprobe…",
+        "status.cleared_all": "Queue, history, and download archive cleared.",
         "status.destination_updated": (
             "Destination updated; manual metadata edits were preserved."
         ),
@@ -234,6 +256,7 @@ _ENGLISH: Final = MappingProxyType(
         "tab.review": "2. Review & edit",
         "tab.review_count": "2. Review & edit ({count})",
         "theme.dark": "Dark",
+        "theme.original": "Original — red & black",
         "theme.light": "Light",
         "theme.system": "System",
         "unit.kib_unlimited": " KiB/s (0 = unlimited)",
@@ -244,13 +267,14 @@ _ENGLISH: Final = MappingProxyType(
 
 _RUSSIAN: Final = MappingProxyType(
     {
-        "app.title": "OpenMediaDL",
+        "app.title": "YT-DW",
         "action.analyze": "Анализировать",
         "action.browse": "Обзор…",
         "action.cancel": "Отмена",
         "action.cancel_all_pending": "Отменить все ожидающие",
         "action.cancel_analysis": "Отменить анализ",
         "action.cancel_selected": "Отменить выбранные",
+        "action.clear_all": "Очистить всё",
         "action.close": "Закрыть",
         "action.continue_downloads": "Перейти к скачиванию →",
         "action.download": "Скачать",
@@ -280,6 +304,7 @@ _RUSSIAN: Final = MappingProxyType(
         "log.analysis_completed": "Анализ завершён. Элементов: {count}.",
         "log.analysis_error": "Ошибка анализа: {message}",
         "log.analyzing_urls": "Анализ ссылок: {count}…",
+        "log.cleared_all": ("Очищено: очередь — {queue}, история — {history}, архив — {archive}."),
         "log.queue_cancelled": "Очередь отменена.",
         "log.queue_finished": "Очередь завершена.",
         "log.recalculated": "Метаданные пересчитаны. Элементов: {count}.",
@@ -304,6 +329,18 @@ _RUSSIAN: Final = MappingProxyType(
             "yt-dlp поддерживает продолжение."
         ),
         "dialog.cancel_queue.title": "Отмена очереди",
+        "dialog.clear_all.message": (
+            "Очистить всю очередь, историю и архив загрузок, чтобы всё можно было "
+            "проанализировать и скачать заново? Скачанные медиафайлы, вставленные ссылки "
+            "и настройки удалены не будут."
+        ),
+        "dialog.clear_all.title": "Очистить данные загрузок",
+        "dialog.clear_all_active.message": (
+            "Дождитесь завершения анализа или скачивания либо сначала отмените задачу."
+        ),
+        "dialog.clear_all_active.title": "Есть активные задачи",
+        "dialog.clear_all_failed.message": "Не удалось очистить данные загрузок: {message}",
+        "dialog.clear_all_failed.title": "Ошибка очистки",
         "dialog.checking_ffmpeg.message": (
             "FFmpeg проверяется в фоне. Запустите очередь ещё раз после завершения проверки."
         ),
@@ -338,7 +375,7 @@ _RUSSIAN: Final = MappingProxyType(
         ),
         "dialog.ffmpeg_stopping.title": "FFmpeg ещё проверяется",
         "notice.legal_full": (
-            "Скачивайте только контент, который вам разрешено сохранять. OpenMediaDL не "
+            "Скачивайте только контент, который вам разрешено сохранять. YT-DW не "
             "обходит DRM, платный доступ и ограничения доступа."
         ),
         "placeholder.activity_log": (
@@ -382,10 +419,14 @@ _RUSSIAN: Final = MappingProxyType(
         "settings.browser_profile_placeholder": "Необязательное имя профиля браузера",
         "settings.continue_parts": "Продолжать поддерживаемые незавершённые загрузки",
         "settings.cookies_browser": "Cookies из браузера",
+        "settings.cookies_disabled": "Отключено",
         "settings.cookies_notice": (
-            "OpenMediaDL хранит только выбранный браузер и необязательное имя профиля. "
-            "Содержимое cookies не сохраняется и не записывается в журнал."
+            "YT-DW читает cookies только при повторной попытке после запроса авторизации. "
+            "В автоматическом режиме сначала проверяется системный браузер, затем найденные "
+            "Chrome, Firefox, Edge, Opera и другие поддерживаемые браузеры. Содержимое cookies "
+            "не сохраняется и не записывается в журнал. Пакет browser_cookie3 не требуется."
         ),
+        "settings.cookies_system": "Автоматически (системный + резервные)",
         "settings.delay": "Задержка между файлами",
         "settings.ffmpeg_check_after_save": ("FFmpeg будет проверен в фоне после сохранения."),
         "settings.ffmpeg_directory": "Папка FFmpeg",
@@ -420,6 +461,7 @@ _RUSSIAN: Final = MappingProxyType(
         "status.analyzed": "Проанализировано: {current}",
         "status.analyzed_total": "Проанализировано: {current} из {total}",
         "status.checking_ffmpeg": "Проверка FFmpeg/FFprobe…",
+        "status.cleared_all": "Очередь, история и архив загрузок очищены.",
         "status.destination_updated": ("Папка обновлена; ручные изменения метаданных сохранены."),
         "status.ffmpeg_available": "FFmpeg доступен",
         "status.ffmpeg_unavailable": ("FFmpeg/FFprobe недоступны — настройте их перед скачиванием"),
@@ -458,6 +500,7 @@ _RUSSIAN: Final = MappingProxyType(
         "tab.review": "2. Проверка и правка",
         "tab.review_count": "2. Проверка и правка ({count})",
         "theme.dark": "Тёмная",
+        "theme.original": "Оригинальная — красно-чёрная",
         "theme.light": "Светлая",
         "theme.system": "Системная",
         "unit.kib_unlimited": " КиБ/с (0 = без ограничений)",

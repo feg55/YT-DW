@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import errno
 
+from yt_dlp.cookies import CookieLoadError
+
+from openmediadl.core.browser_cookies import BrowserCookiesUnavailableError
 from openmediadl.core.error_mapper import ErrorCategory, map_error
 
 
@@ -14,6 +17,22 @@ def test_maps_authentication_error() -> None:
 def test_maps_disk_full_os_error() -> None:
     mapped = map_error(OSError(errno.ENOSPC, "No space left on device"))
     assert mapped.category is ErrorCategory.DISK_FULL
+
+
+def test_maps_nested_browser_cookie_failure_to_actionable_error() -> None:
+    load_error = CookieLoadError("failed to load cookies")
+    unavailable = BrowserCookiesUnavailableError(["chrome", "firefox", "edge"])
+    unavailable.__cause__ = load_error
+    wrapped = RuntimeError("download setup failed")
+    wrapped.__cause__ = unavailable
+
+    mapped = map_error(wrapped)
+
+    assert mapped.category is ErrorCategory.BROWSER_COOKIES_UNAVAILABLE
+    assert "close the browser" in mapped.message.casefold()
+    assert "another browser" in mapped.message.casefold()
+    assert "chrome, firefox, edge" in mapped.message.casefold()
+    assert "failed to load cookies" in mapped.technical.casefold()
 
 
 def test_maps_final_http_403_to_actionable_error() -> None:

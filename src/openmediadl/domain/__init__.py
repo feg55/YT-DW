@@ -1,4 +1,4 @@
-"""Domain types for OpenMediaDL."""
+"""Domain types for YT-DW."""
 
 from openmediadl.domain.download_item import DownloadItem
 from openmediadl.domain.download_status import DownloadMode, DownloadStatus

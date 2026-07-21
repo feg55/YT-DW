@@ -3,7 +3,9 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 
-from openmediadl.core.queue_manager import QueueManager
+import pytest
+
+from openmediadl.core.queue_manager import QueueBusyError, QueueManager
 from openmediadl.database import Database, QueueRepository
 from openmediadl.domain import DownloadItem, DownloadStatus
 
@@ -204,3 +206,53 @@ def test_progress_is_throttled_but_force_flushes_latest_value(tmp_path: Path) ->
     assert manager.repository.get(item.id).progress_percentage == 10.0  # type: ignore[union-attr]
     manager.flush_progress()
     assert manager.repository.get(item.id).progress_percentage == 30.0  # type: ignore[union-attr]
+
+
+def test_clear_all_removes_download_state_but_preserves_media_and_settings(
+    tmp_path: Path,
+) -> None:
+    manager = QueueManager(tmp_path / "queue.sqlite3")
+    media_file = tmp_path / "downloads" / "finished.m4a"
+    media_file.parent.mkdir()
+    media_file.write_bytes(b"media")
+    archive_file = tmp_path / "yt-dw-archive.txt"
+    archive_file.write_text("youtube finished\n", encoding="utf-8")
+    manager.settings.set("fixture.setting", {"preserved": True})
+
+    completed = manager.add(_item("finished", DownloadStatus.READY), skip_if_archived=False)
+    manager.mark_completed(completed.id, final_media_path=str(media_file))
+    failed = manager.add(_item("failed", DownloadStatus.READY), skip_if_archived=False)
+    manager.mark_failed(failed.id, error_message="fixture failure")
+
+    cleared = manager.clear_all(archive_file)
+
+    assert cleared.queue_items == 2
+    assert cleared.history_entries == 2
+    assert cleared.archive_entries == 1
+    assert manager.list() == []
+    assert manager.history.list() == []
+    assert manager.archive.list() == []
+    assert not archive_file.exists()
+    assert media_file.read_bytes() == b"media"
+    assert manager.settings.get("fixture.setting") == {"preserved": True}
+
+    queued_again = manager.add(_item("finished", DownloadStatus.READY))
+    assert queued_again.id != completed.id
+    assert queued_again.status is DownloadStatus.READY
+    assert manager.repository.count() == 1
+
+
+def test_clear_all_refuses_while_queue_item_is_active(tmp_path: Path) -> None:
+    manager = QueueManager(tmp_path / "queue.sqlite3")
+    active = manager.add(
+        _item("downloading", DownloadStatus.DOWNLOADING),
+        skip_if_archived=False,
+    )
+    archive_file = tmp_path / "yt-dw-archive.txt"
+    archive_file.write_text("youtube downloading\n", encoding="utf-8")
+
+    with pytest.raises(QueueBusyError):
+        manager.clear_all(archive_file)
+
+    assert manager.get(active.id) is not None
+    assert archive_file.read_text(encoding="utf-8") == "youtube downloading\n"

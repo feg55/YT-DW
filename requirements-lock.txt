@@ -32,10 +32,10 @@ macholib==1.16.4 ; sys_platform == 'darwin'
     # via pyinstaller
 mutagen==1.48.1
     # via
-    #   openmediadl (pyproject.toml)
+    #   yt-dw (pyproject.toml)
     #   yt-dlp
 mypy==2.3.0
-    # via openmediadl (pyproject.toml)
+    # via yt-dw (pyproject.toml)
 mypy-extensions==1.1.0
     # via mypy
 packaging==26.2
@@ -48,7 +48,7 @@ pathspec==1.1.1
 pefile==2024.8.26 ; sys_platform == 'win32'
     # via pyinstaller
 pillow==12.3.0
-    # via openmediadl (pyproject.toml)
+    # via yt-dw (pyproject.toml)
 pluggy==1.6.0
     # via
     #   pytest
@@ -60,11 +60,11 @@ pycryptodomex==3.23.0
 pygments==2.20.0
     # via pytest
 pyinstaller==6.21.0
-    # via openmediadl (pyproject.toml)
+    # via yt-dw (pyproject.toml)
 pyinstaller-hooks-contrib==2026.6
     # via pyinstaller
 pyside6==6.11.1
-    # via openmediadl (pyproject.toml)
+    # via yt-dw (pyproject.toml)
 pyside6-addons==6.11.1
     # via pyside6
 pyside6-essentials==6.11.1
@@ -73,16 +73,16 @@ pyside6-essentials==6.11.1
     #   pyside6-addons
 pytest==9.1.1
     # via
-    #   openmediadl (pyproject.toml)
+    #   yt-dw (pyproject.toml)
     #   pytest-cov
 pytest-cov==7.1.0
-    # via openmediadl (pyproject.toml)
+    # via yt-dw (pyproject.toml)
 pywin32-ctypes==0.2.3 ; sys_platform == 'win32'
     # via pyinstaller
 requests==2.34.2
     # via yt-dlp
 ruff==0.15.22
-    # via openmediadl (pyproject.toml)
+    # via yt-dw (pyproject.toml)
 setuptools==83.0.0
     # via pyinstaller
 shiboken6==6.11.1
@@ -99,6 +99,6 @@ urllib3==2.7.0
 websockets==16.1.1
     # via yt-dlp
 yt-dlp==2026.7.4
-    # via openmediadl (pyproject.toml)
+    # via yt-dw (pyproject.toml)
 yt-dlp-ejs==0.8.0
     # via yt-dlp

@@ -4,10 +4,12 @@ import os
 from copy import deepcopy
 from pathlib import Path
 
+import pytest
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QTableView
+from PySide6.QtWidgets import QApplication, QMessageBox, QTableView
 
 from openmediadl.application import ApplicationPaths
 from openmediadl.core.analyzer import AnalyzedEntry
@@ -21,6 +23,7 @@ from openmediadl.domain.download_status import DownloadMode, DownloadStatus
 from openmediadl.domain.settings import (
     AppearanceSettings,
     AppSettings,
+    CookieBrowser,
     LanguagePreference,
     MetadataSettings,
     ThemePreference,
@@ -87,7 +90,7 @@ def test_main_window_constructs_three_persistent_tabs(tmp_path: Path) -> None:
     database = Database(paths.database_file)
     window = _window(paths, database)
 
-    assert window.windowTitle() == "OpenMediaDL"
+    assert window.windowTitle() == "YT-DW"
     assert window.tabs.count() == 3
     assert window.tabs.tabText(0).startswith(window.translator.tr("tab.analyze"))
     assert window.tabs.tabText(1).startswith(window.translator.tr("tab.review"))
@@ -116,23 +119,114 @@ def test_main_window_constructs_three_persistent_tabs(tmp_path: Path) -> None:
     del app
 
 
+def test_clear_all_button_resets_download_state_without_deleting_media_or_url_draft(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    paths = _paths(tmp_path)
+    database = Database(paths.database_file)
+    window = _window(paths, database)
+    playlist_url = "https://example.com/playlist?list=again"
+    window.url_input.setPlainText(playlist_url)
+    media_file = tmp_path / "downloads" / "finished.m4a"
+    media_file.parent.mkdir()
+    media_file.write_bytes(b"media")
+
+    completed = window.queue_manager.add(
+        _ready_item(media_file.parent),
+        skip_if_archived=False,
+    )
+    completed = window.queue_manager.mark_completed(
+        completed.id,
+        final_media_path=str(media_file),
+    )
+    assert completed is not None
+    window.queue_model.add_items([completed])
+    paths.archive_file.write_text("youtube state-test\n", encoding="utf-8")
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        staticmethod(lambda *_args, **_kwargs: QMessageBox.StandardButton.Yes),
+    )
+
+    window._clear_all()
+
+    assert window.clear_all_button.text() == window.translator.tr("action.clear_all")
+    assert window.queue_model.rowCount() == 0
+    assert window.queue_manager.list() == []
+    assert window.queue_manager.history.list() == []
+    assert window.queue_manager.archive.list() == []
+    assert not paths.archive_file.exists()
+    assert media_file.read_bytes() == b"media"
+    assert window.url_input.toPlainText() == playlist_url
+    assert window.tabs.currentIndex() == window.analyze_tab_index
+
+    _close(window, database)
+    del app
+
+
+def test_clear_all_refuses_while_analysis_worker_is_running(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    paths = _paths(tmp_path)
+    database = Database(paths.database_file)
+    window = _window(paths, database)
+    item = window.queue_manager.add(_ready_item(tmp_path / "downloads"))
+    window.queue_model.add_items([item])
+    warnings: list[tuple[str, str]] = []
+
+    class RunningWorker:
+        @staticmethod
+        def isRunning() -> bool:  # noqa: N802 - mirrors Qt's API
+            return True
+
+    window._analysis_worker = RunningWorker()  # type: ignore[assignment]
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        staticmethod(lambda _parent, title, message: warnings.append((str(title), str(message)))),
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        staticmethod(lambda *_args, **_kwargs: pytest.fail("confirmation must not be shown")),
+    )
+
+    window._clear_all()
+
+    assert warnings
+    assert window.queue_manager.get(item.id) is not None
+    assert window.queue_model.rowCount() == 1
+
+    window._analysis_worker = None
+    _close(window, database)
+    del app
+
+
 def test_settings_dialog_defaults_and_persists_appearance(tmp_path: Path) -> None:
     app = QApplication.instance() or QApplication([])
     paths = _paths(tmp_path)
     database = Database(paths.database_file)
     repository = SettingsRepository(database)
     settings = AppSettings()
+    translator = Translator(LanguagePreference.ENGLISH)
     dialog = SettingsDialog(
         settings,
         FFmpegService(paths.bundled_tools_dir),
-        translator=Translator(LanguagePreference.ENGLISH),
+        translator=translator,
     )
 
     assert dialog.theme.currentData() == ThemePreference.DARK.value
+    original_index = dialog.theme.findData(ThemePreference.ORIGINAL.value)
+    assert original_index >= 0
+    assert dialog.theme.itemText(original_index) == translator.tr("theme.original")
     assert dialog.language.currentData() == LanguagePreference.SYSTEM.value
     assert dialog.remember_last_tab.isChecked()
 
-    dialog.theme.setCurrentIndex(dialog.theme.findData(ThemePreference.LIGHT.value))
+    dialog.theme.setCurrentIndex(original_index)
     dialog.language.setCurrentIndex(dialog.language.findData(LanguagePreference.RUSSIAN.value))
     dialog.remember_last_tab.setChecked(False)
     dialog.apply_to(settings)
@@ -140,9 +234,65 @@ def test_settings_dialog_defaults_and_persists_appearance(tmp_path: Path) -> Non
 
     restored = repository.load()
     assert restored.appearance is not None
-    assert restored.appearance.theme is ThemePreference.LIGHT
+    assert restored.appearance.theme is ThemePreference.ORIGINAL
     assert restored.appearance.language is LanguagePreference.RUSSIAN
     assert not restored.appearance.remember_last_tab
+
+    dialog.close()
+    database.close()
+    del app
+
+
+def test_settings_dialog_persists_cookie_preference_and_explicit_profile(
+    tmp_path: Path,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    paths = _paths(tmp_path)
+    database = Database(paths.database_file)
+    repository = SettingsRepository(database)
+    translator = Translator(LanguagePreference.ENGLISH)
+    settings = AppSettings()
+    dialog = SettingsDialog(
+        settings,
+        FFmpegService(paths.bundled_tools_dir),
+        translator=translator,
+    )
+
+    assert dialog.browser.itemData(0) == CookieBrowser.SYSTEM.value
+    assert dialog.browser.itemText(0) == translator.tr("settings.cookies_system")
+    assert dialog.browser.itemData(1) == CookieBrowser.DISABLED.value
+    assert dialog.browser.itemText(1) == translator.tr("settings.cookies_disabled")
+    assert dialog.browser.currentData() == CookieBrowser.SYSTEM.value
+    assert not dialog.profile.isEnabled()
+
+    dialog.apply_to(settings)
+    repository.save(settings)
+    restored = repository.load()
+    assert restored.downloads is not None
+    assert restored.downloads.cookie_browser is CookieBrowser.SYSTEM
+    assert restored.downloads.cookie_profile is None
+
+    firefox_index = dialog.browser.findData(CookieBrowser.FIREFOX.value)
+    dialog.browser.setCurrentIndex(firefox_index)
+    assert dialog.profile.isEnabled()
+    dialog.profile.setText("developer-edition-default")
+    dialog.apply_to(settings)
+    repository.save(settings)
+
+    restored = repository.load()
+    assert restored.downloads is not None
+    assert restored.downloads.cookie_browser is CookieBrowser.FIREFOX
+    assert restored.downloads.cookie_profile == "developer-edition-default"
+
+    disabled_index = dialog.browser.findData(CookieBrowser.DISABLED.value)
+    dialog.browser.setCurrentIndex(disabled_index)
+    assert not dialog.profile.isEnabled()
+    dialog.apply_to(restored)
+    repository.save(restored)
+    disabled = repository.load()
+    assert disabled.downloads is not None
+    assert disabled.downloads.cookie_browser is CookieBrowser.DISABLED
+    assert disabled.downloads.cookie_profile is None
 
     dialog.close()
     database.close()

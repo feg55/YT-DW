@@ -67,12 +67,12 @@ jobs:
           python -m pip install --no-deps -e .
 
       - name: Build with PyInstaller
-        run: python -m PyInstaller --clean --noconfirm OpenMediaDL.spec
+        run: python -m PyInstaller --clean --noconfirm YT-DW.spec
 
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
-          name: OpenMediaDL-windows-x64
-          path: dist/OpenMediaDL.exe
+          name: YT-DW-windows-x64
+          path: dist/YT-DW.exe
           if-no-files-found: error
           retention-days: 14

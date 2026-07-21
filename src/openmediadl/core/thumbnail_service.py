@@ -240,7 +240,7 @@ class ThumbnailService:
                     url,
                     headers={
                         "Accept": "image/*",
-                        "User-Agent": "OpenMediaDL/0.1 (local desktop application)",
+                        "User-Agent": "YT-DW/0.1 (local desktop application)",
                     },
                 )
                 with urlopen(request, timeout=timeout) as response:  # noqa: S310

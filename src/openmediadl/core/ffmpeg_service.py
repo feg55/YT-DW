@@ -62,14 +62,9 @@ class FFmpegService:
         target_key = _path_key(resolved)
         with _PATH_UPDATE_LOCK:
             current = os.environ.get("PATH", "")
-            if any(
-                entry and _path_key(entry) == target_key
-                for entry in current.split(os.pathsep)
-            ):
+            if any(entry and _path_key(entry) == target_key for entry in current.split(os.pathsep)):
                 return resolved
-            os.environ["PATH"] = (
-                f"{resolved}{os.pathsep}{current}" if current else str(resolved)
-            )
+            os.environ["PATH"] = f"{resolved}{os.pathsep}{current}" if current else str(resolved)
         return resolved
 
     def _from_paths(self, ffmpeg: Path | None, ffprobe: Path | None) -> FFmpegInstallation:

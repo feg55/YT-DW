@@ -39,8 +39,10 @@ wheelhouse/
 *.manifest
 *.spec.bak
 
-# Local OpenMediaDL state and generated downloads
+# Local YT-DW state and generated downloads
 /.tmp/
+/.yt-dw/
+# Legacy development state from releases branded OpenMediaDL
 /.openmediadl/
 /cache/
 /data/

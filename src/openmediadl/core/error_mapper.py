@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
+from openmediadl.core.browser_cookies import BrowserCookiesUnavailableError
+
 
 class ErrorCategory(StrEnum):
     FFMPEG_NOT_FOUND = "ffmpeg_not_found"
@@ -14,6 +16,7 @@ class ErrorCategory(StrEnum):
     UNSUPPORTED_URL = "unsupported_url"
     PRIVATE_CONTENT = "private_content"
     AUTHENTICATION_REQUIRED = "authentication_required"
+    BROWSER_COOKIES_UNAVAILABLE = "browser_cookies_unavailable"
     RATE_LIMITED = "rate_limited"
     HTTP_FORBIDDEN = "http_forbidden"
     NETWORK_TIMEOUT = "network_timeout"
@@ -46,6 +49,18 @@ _TEXT_PATTERNS: Final[tuple[tuple[tuple[str, ...], ErrorCategory, str], ...]] = 
         "FFprobe was not found. Configure its installation directory.",
     ),
     (("unsupported url",), ErrorCategory.UNSUPPORTED_URL, "This URL is not supported."),
+    (
+        ("browser cookies are unavailable",),
+        ErrorCategory.BROWSER_COOKIES_UNAVAILABLE,
+        "Browser cookies could not be loaded. Close the browser and try again, or select "
+        "another browser in Settings.",
+    ),
+    (
+        ("failed to load cookies",),
+        ErrorCategory.BROWSER_COOKIES_UNAVAILABLE,
+        "Browser cookies could not be loaded. Close the browser and try again, or select "
+        "another browser in Settings.",
+    ),
     (("private video",), ErrorCategory.PRIVATE_CONTENT, "This content is private."),
     (
         ("private", "sign in"),
@@ -115,11 +130,22 @@ _TEXT_PATTERNS: Final[tuple[tuple[tuple[str, ...], ErrorCategory, str], ...]] = 
 def map_error(error: BaseException | str) -> MappedError:
     """Return a stable category without exposing technical details in the UI."""
 
-    technical = (
-        str(error).strip() or error.__class__.__name__
-        if isinstance(error, BaseException)
-        else str(error)
-    )
+    if isinstance(error, BaseException):
+        messages = list(dict.fromkeys(message.strip() for message in _exception_messages(error)))
+        messages = [message for message in messages if message]
+        technical = "\nCaused by: ".join(messages) or error.__class__.__name__
+    else:
+        technical = str(error)
+    cookie_failure = _find_browser_cookie_failure(error)
+    if cookie_failure is not None:
+        attempted = ", ".join(cookie_failure.attempted_browsers) or "none found"
+        return MappedError(
+            ErrorCategory.BROWSER_COOKIES_UNAVAILABLE,
+            "Browser cookies could not authenticate this media. "
+            f"Tried browser stores: {attempted}. Close the browsers listed and try again, "
+            "or select another browser in Settings.",
+            technical,
+        )
     if isinstance(error, OSError):
         if error.errno == errno.ENOSPC:
             return MappedError(ErrorCategory.DISK_FULL, "The destination disk is full.", technical)
@@ -135,10 +161,58 @@ def map_error(error: BaseException | str) -> MappedError:
                 "Permission was denied for the destination.",
                 technical,
             )
-    lowered = technical.casefold()
+    lowered = "\n".join(_exception_messages(error)).casefold()
     for required, category, message in _TEXT_PATTERNS:
         if all(fragment in lowered for fragment in required):
             return MappedError(category, message, technical)
     return MappedError(
         ErrorCategory.UNKNOWN, "The operation failed. See the log for details.", technical
     )
+
+
+def _exception_messages(error: BaseException | str) -> list[str]:
+    if not isinstance(error, BaseException):
+        return [str(error)]
+    pending = [error]
+    messages: list[str] = []
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        messages.append(str(current))
+        for linked in (current.__cause__, current.__context__):
+            if isinstance(linked, BaseException):
+                pending.append(linked)
+        exc_info = getattr(current, "exc_info", None)
+        if isinstance(exc_info, tuple) and len(exc_info) > 1:
+            original = exc_info[1]
+            if isinstance(original, BaseException):
+                pending.append(original)
+    return messages
+
+
+def _find_browser_cookie_failure(
+    error: BaseException | str,
+) -> BrowserCookiesUnavailableError | None:
+    if not isinstance(error, BaseException):
+        return None
+    pending = [error]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, BrowserCookiesUnavailableError):
+            return current
+        for linked in (current.__cause__, current.__context__):
+            if isinstance(linked, BaseException):
+                pending.append(linked)
+        exc_info = getattr(current, "exc_info", None)
+        if isinstance(exc_info, tuple) and len(exc_info) > 1:
+            original = exc_info[1]
+            if isinstance(original, BaseException):
+                pending.append(original)
+    return None

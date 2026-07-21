@@ -56,6 +56,7 @@ class SettingsDialog(QDialog):
         self.theme = QComboBox()
         for theme_preference, key in (
             (ThemePreference.DARK, "theme.dark"),
+            (ThemePreference.ORIGINAL, "theme.original"),
             (ThemePreference.LIGHT, "theme.light"),
             (ThemePreference.SYSTEM, "theme.system"),
         ):
@@ -120,14 +121,25 @@ class SettingsDialog(QDialog):
         downloads_layout.addStretch(1)
 
         self.browser = QComboBox()
-        self.browser.addItem(self._tr("common.none"), None)
+        self.browser.addItem(
+            self._tr("settings.cookies_system"),
+            CookieBrowser.SYSTEM.value,
+        )
+        self.browser.addItem(
+            self._tr("settings.cookies_disabled"),
+            CookieBrowser.DISABLED.value,
+        )
         for browser in CookieBrowser:
+            if browser in {CookieBrowser.SYSTEM, CookieBrowser.DISABLED}:
+                continue
             self.browser.addItem(browser.value.title(), browser.value)
-        if downloads.cookie_browser:
-            index = self.browser.findData(downloads.cookie_browser.value)
-            self.browser.setCurrentIndex(max(0, index))
+        selected_browser = downloads.cookie_browser or CookieBrowser.SYSTEM
+        index = self.browser.findData(selected_browser.value)
+        self.browser.setCurrentIndex(max(0, index))
         self.profile = QLineEdit(downloads.cookie_profile or "")
         self.profile.setPlaceholderText(self._tr("settings.browser_profile_placeholder"))
+        self.browser.currentIndexChanged.connect(self._update_cookie_profile_state)
+        self._update_cookie_profile_state()
         self.timeout = QDoubleSpinBox()
         self.timeout.setRange(1, 600)
         self.timeout.setSuffix(self._tr("unit.seconds"))
@@ -191,9 +203,13 @@ class SettingsDialog(QDialog):
         settings.appearance = appearance
 
         downloads = settings.downloads or DownloadSettings()
-        browser = self.browser.currentData()
-        downloads.cookie_browser = CookieBrowser(browser) if browser else None
-        downloads.cookie_profile = self.profile.text().strip() or None
+        browser = CookieBrowser(str(self.browser.currentData()))
+        downloads.cookie_browser = browser
+        downloads.cookie_profile = (
+            self.profile.text().strip() or None
+            if self._is_explicit_cookie_browser(browser)
+            else None
+        )
         downloads.maximum_concurrent_downloads = self.concurrent.value()
         downloads.retry_count = self.retries.value()
         downloads.fragment_retry_count = self.fragment_retries.value()
@@ -204,6 +220,17 @@ class SettingsDialog(QDialog):
         downloads.skip_download_archive = self.archive.isChecked()
         downloads.ffmpeg_directory = self.ffmpeg_directory.text().strip() or None
         settings.downloads = downloads
+
+    def _update_cookie_profile_state(self, _index: int = -1) -> None:
+        try:
+            browser = CookieBrowser(str(self.browser.currentData()))
+        except ValueError:
+            browser = CookieBrowser.SYSTEM
+        self.profile.setEnabled(self._is_explicit_cookie_browser(browser))
+
+    @staticmethod
+    def _is_explicit_cookie_browser(browser: CookieBrowser) -> bool:
+        return browser not in {CookieBrowser.SYSTEM, CookieBrowser.DISABLED}
 
     def _browse_ffmpeg(self) -> None:
         selected = QFileDialog.getExistingDirectory(

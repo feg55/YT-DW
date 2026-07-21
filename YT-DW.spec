@@ -7,7 +7,7 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules, copy
 project_root = Path(SPECPATH)
 
 datas = collect_data_files("openmediadl", includes=["resources/*", "resources/**/*"])
-datas += copy_metadata("openmediadl")
+datas += copy_metadata("yt-dw")
 datas += copy_metadata("yt-dlp")
 datas += copy_metadata("yt-dlp-ejs")
 datas += copy_metadata("mutagen")
@@ -40,8 +40,8 @@ executable = EXE(
     analysis.binaries,
     analysis.datas,
     [],
-    name="OpenMediaDL",
-    icon=str(project_root / "src" / "openmediadl" / "resources" / "icons" / "openmediadl.ico"),
+    name="YT-DW",
+    icon=str(project_root / "src" / "openmediadl" / "resources" / "icons" / "yt-dw.ico"),
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

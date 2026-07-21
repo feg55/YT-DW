@@ -5,16 +5,19 @@ from openmediadl.database.migrations import MIGRATIONS, apply_migrations
 from openmediadl.database.repositories import (
     ArchiveEntry,
     ArchiveRepository,
+    ClearedDownloadState,
     HistoryEntry,
     HistoryRepository,
     QueueRepository,
     SettingsRepository,
     WindowStateRepository,
+    clear_download_state,
 )
 
 __all__ = [
     "ArchiveEntry",
     "ArchiveRepository",
+    "ClearedDownloadState",
     "Database",
     "HistoryEntry",
     "HistoryRepository",
@@ -24,5 +27,6 @@ __all__ = [
     "SettingsRepository",
     "WindowStateRepository",
     "apply_migrations",
+    "clear_download_state",
     "initialize_database",
 ]

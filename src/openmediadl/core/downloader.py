@@ -18,6 +18,13 @@ from yt_dlp.downloader import external as ytdlp_external
 from yt_dlp.utils import DownloadCancelled
 from yt_dlp.utils import Popen as YtdlpPopen
 
+from openmediadl.core.browser_cookies import (
+    BrowserCookiesUnavailableError,
+    cookie_specs_for_retry,
+    is_authentication_error,
+    is_cookie_load_error,
+    normalize_browser_choice,
+)
 from openmediadl.core.error_mapper import ErrorCategory, MappedError, map_error
 from openmediadl.core.filename_service import ensure_unique_path
 from openmediadl.core.metadata_writer import MetadataTags, MetadataWriter
@@ -29,7 +36,12 @@ from openmediadl.core.thumbnail_service import (
 )
 from openmediadl.domain.download_item import DownloadItem
 from openmediadl.domain.download_status import DownloadMode, DownloadStatus
-from openmediadl.domain.settings import DownloadSettings, MetadataSettings, VideoQuality
+from openmediadl.domain.settings import (
+    CookieBrowser,
+    DownloadSettings,
+    MetadataSettings,
+    VideoQuality,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -43,7 +55,7 @@ _FFMPEG_CANCEL_EVENT: ContextVar[threading.Event | None] = ContextVar(
 
 
 class _CancellableFFmpegPopen(YtdlpPopen):
-    """Poll only OpenMediaDL's active fallback FFmpeg for cancellation."""
+    """Poll only YT-DW's active fallback FFmpeg for cancellation."""
 
     _POLL_INTERVAL = 0.1
 
@@ -233,6 +245,53 @@ class Downloader:
             raise DownloadPipelineError(map_error(error), output) from error
 
     def _download_info(self, item: DownloadItem, options: dict[str, Any]) -> Any:
+        """Download with cookie recovery around the normal transport fallback."""
+
+        browser = normalize_browser_choice(self.download_settings.cookie_browser)
+        public_options = dict(options)
+        public_options.pop("cookiesfrombrowser", None)
+        public_options.pop("cookiefile", None)
+        try:
+            return self._download_with_transport_fallback(item, public_options)
+        except Exception as error:
+            if not is_authentication_error(error) or browser is CookieBrowser.DISABLED:
+                raise
+            authentication_error = error
+
+        if self.cancel_event.is_set():
+            raise DownloadCancelled() from authentication_error
+        attempts: list[str] = []
+        last_error: BaseException = authentication_error
+        for cookies in cookie_specs_for_retry(browser, self.download_settings.cookie_profile):
+            if self.cancel_event.is_set():
+                raise DownloadCancelled() from last_error
+            attempts.append(cookies[0])
+            LOGGER.info(
+                "Authentication is required; retrying download with cookies from %s",
+                cookies[0],
+            )
+            authenticated_options = dict(public_options)
+            authenticated_options["cookiesfrombrowser"] = cookies
+            try:
+                return self._download_with_transport_fallback(item, authenticated_options)
+            except Exception as cookie_error:
+                if not (
+                    is_cookie_load_error(cookie_error) or is_authentication_error(cookie_error)
+                ):
+                    raise
+                last_error = cookie_error
+                LOGGER.warning(
+                    "Browser cookie attempt with %s did not authenticate: %s",
+                    cookies[0],
+                    cookie_error,
+                )
+        raise BrowserCookiesUnavailableError(attempts) from last_error
+
+    def _download_with_transport_fallback(
+        self,
+        item: DownloadItem,
+        options: dict[str, Any],
+    ) -> Any:
         """Download once natively, retrying audio HTTP 403s through FFmpeg."""
 
         try:
@@ -314,11 +373,6 @@ class Downloader:
             options["ffmpeg_location"] = self.download_settings.ffmpeg_directory
         if self.download_settings.bandwidth_limit:
             options["ratelimit"] = self.download_settings.bandwidth_limit
-        if self.download_settings.cookie_browser:
-            cookie: tuple[str, ...] = (self.download_settings.cookie_browser.value,)
-            if self.download_settings.cookie_profile:
-                cookie += (self.download_settings.cookie_profile,)
-            options["cookiesfrombrowser"] = cookie
         if item.download_mode is DownloadMode.AUDIO:
             # Match `yt-dlp -x --audio-format m4a`: select the best source
             # audio first, then let FFmpeg produce the requested M4A container.
@@ -575,9 +629,7 @@ def _is_http_forbidden(error: BaseException) -> bool:
 
         status = getattr(current, "code", None) or getattr(current, "status", None)
         text = str(current).casefold()
-        if status == 403 or "http error 403" in text or (
-            "403" in text and "forbidden" in text
-        ):
+        if status == 403 or "http error 403" in text or ("403" in text and "forbidden" in text):
             return True
 
         for linked in (current.__cause__, current.__context__):

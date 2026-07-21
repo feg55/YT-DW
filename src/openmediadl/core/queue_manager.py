@@ -12,12 +12,14 @@ from pathlib import Path
 from openmediadl.database.connection import Database
 from openmediadl.database.repositories import (
     ArchiveRepository,
+    ClearedDownloadState,
     HistoryRepository,
     QueueRepository,
     SettingsRepository,
+    clear_download_state,
 )
 from openmediadl.domain.download_item import DownloadItem
-from openmediadl.domain.download_status import DownloadStatus
+from openmediadl.domain.download_status import ACTIVE_STATUSES, DownloadStatus
 
 
 def _text_or_none(value: str | Enum | None) -> str | None:
@@ -26,6 +28,10 @@ def _text_or_none(value: str | Enum | None) -> str | None:
     if isinstance(value, Enum):
         return str(value.value)
     return str(value)
+
+
+class QueueBusyError(RuntimeError):
+    """Raised when destructive queue maintenance is requested during active work."""
 
 
 class QueueManager:
@@ -376,6 +382,35 @@ class QueueManager:
                 self._forget_runtime_state(item_id)
                 self._clear_terminal_records(item_id)
             return removed
+
+    def clear_all(self, archive_path: str | Path | None = None) -> ClearedDownloadState:
+        """Clear queue, history and archives without deleting media or settings."""
+
+        with self._lock:
+            if self._progress_cache or self.repository.count(ACTIVE_STATUSES):
+                raise QueueBusyError("Cannot clear download state while tasks are active")
+
+            archive = Path(archive_path) if archive_path is not None else None
+            archive_contents: bytes | None = None
+            archive_existed = bool(archive and archive.exists())
+            if archive_existed and archive is not None:
+                # Remove the yt-dlp text archive before changing SQLite. If the
+                # database transaction fails, restore its exact contents.
+                archive_contents = archive.read_bytes()
+                archive.unlink()
+            try:
+                cleared = clear_download_state(self.database)
+            except Exception:
+                if archive_existed and archive is not None and archive_contents is not None:
+                    archive.parent.mkdir(parents=True, exist_ok=True)
+                    archive.write_bytes(archive_contents)
+                raise
+
+            self._cancel_events.clear()
+            self._progress_cache.clear()
+            self._last_progress_write.clear()
+            self._recorded_terminal.clear()
+            return cleared
 
     def restore_unfinished(self) -> builtins.list[DownloadItem]:
         """Map interrupted analyzing/downloading/processing rows to safe states."""

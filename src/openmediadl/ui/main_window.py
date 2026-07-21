@@ -1,4 +1,4 @@
-"""State-preserving tabbed desktop interface for OpenMediaDL."""
+"""State-preserving tabbed desktop interface for YT-DW."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ from openmediadl.core.analyzer import AnalysisOptions, AnalyzedEntry, parse_urls
 from openmediadl.core.ffmpeg_service import FFmpegInstallation, FFmpegService
 from openmediadl.core.filename_service import ensure_unique_path, sanitize_filename
 from openmediadl.core.metadata_cleaner import clean_track_title
-from openmediadl.core.queue_manager import QueueManager
+from openmediadl.core.queue_manager import QueueBusyError, QueueManager
 from openmediadl.core.thumbnail_service import ThumbnailService
 from openmediadl.database.repositories import SettingsRepository, WindowStateRepository
 from openmediadl.domain.download_item import DownloadItem
@@ -111,7 +111,7 @@ class MainWindow(QMainWindow):
         self._check_ffmpeg()
 
     def _build_ui(self) -> None:
-        self.setWindowTitle("OpenMediaDL")
+        self.setWindowTitle(self._tr("app.title"))
         self.resize(1480, 900)
         root = QWidget()
         layout = QVBoxLayout(root)
@@ -282,6 +282,8 @@ class MainWindow(QMainWindow):
         self.retry_button.clicked.connect(self._retry_failed)
         self.remove_completed_button = QPushButton(self._tr("action.remove_completed"))
         self.remove_completed_button.clicked.connect(self._remove_completed)
+        self.clear_all_button = QPushButton(self._tr("action.clear_all"))
+        self.clear_all_button.clicked.connect(self._clear_all)
         self.open_output_button = QPushButton(self._tr("action.open_output"))
         self.open_output_button.clicked.connect(self._open_output_directory)
         self.open_logs_button = QPushButton(self._tr("action.open_logs"))
@@ -298,6 +300,7 @@ class MainWindow(QMainWindow):
         ):
             queue_controls.addWidget(widget)
         queue_controls.addStretch(1)
+        queue_controls.addWidget(self.clear_all_button)
         lower_layout.addLayout(queue_controls)
 
         progress_row = QHBoxLayout()
@@ -394,6 +397,7 @@ class MainWindow(QMainWindow):
         self.cancel_pending_button.setText(self._tr("action.cancel_all_pending"))
         self.retry_button.setText(self._tr("action.retry_failed"))
         self.remove_completed_button.setText(self._tr("action.remove_completed"))
+        self.clear_all_button.setText(self._tr("action.clear_all"))
         self.open_output_button.setText(self._tr("action.open_output"))
         self.open_logs_button.setText(self._tr("action.open_logs"))
         self.log_panel.setPlaceholderText(self._tr("placeholder.activity_log"))
@@ -551,6 +555,7 @@ class MainWindow(QMainWindow):
         self.analyze_button.setEnabled(False)
         self.cancel_analysis_button.setEnabled(True)
         self.download_button.setEnabled(False)
+        self.clear_all_button.setEnabled(False)
         self._set_source_options_enabled(False)
         self.analysis_phase_label.setText(self._tr("status.starting_analysis"))
         self._append_log(self._tr("log.analyzing_urls", count=len(urls)))
@@ -671,6 +676,7 @@ class MainWindow(QMainWindow):
             self.download_button.setEnabled(
                 bool(self._ffmpeg_installation and self._ffmpeg_installation.available)
             )
+            self.clear_all_button.setEnabled(True)
 
     def _cancel_analysis(self) -> None:
         if self._analysis_worker:
@@ -852,6 +858,7 @@ class MainWindow(QMainWindow):
         self._download_worker.queue_finished.connect(self._on_queue_result)
         self._download_worker.finished.connect(self._download_thread_done)
         self.download_button.setEnabled(False)
+        self.clear_all_button.setEnabled(False)
         self.pause_button.setEnabled(True)
         self.analyze_button.setEnabled(False)
         self.queue_model.set_locked_items({item.id for item in candidates})
@@ -954,6 +961,8 @@ class MainWindow(QMainWindow):
         if self._download_worker:
             self._download_worker.deleteLater()
         self._download_worker = None
+        if not self._analysis_worker or not self._analysis_worker.isRunning():
+            self.clear_all_button.setEnabled(True)
 
     def _toggle_pause(self) -> None:
         if not self._download_worker:
@@ -1025,6 +1034,62 @@ class MainWindow(QMainWindow):
         self.queue_manager.remove_completed()
         self.queue_model.remove_completed()
         self._update_queue_summary()
+
+    def _clear_all(self) -> None:
+        analysis_active = bool(self._analysis_worker and self._analysis_worker.isRunning())
+        downloads_active = bool(self._download_worker and self._download_worker.isRunning())
+        if analysis_active or downloads_active:
+            QMessageBox.warning(
+                self,
+                self._tr("dialog.clear_all_active.title"),
+                self._tr("dialog.clear_all_active.message"),
+            )
+            return
+        answer = QMessageBox.question(
+            self,
+            self._tr("dialog.clear_all.title"),
+            self._tr("dialog.clear_all.message"),
+        )
+        if answer is not QMessageBox.StandardButton.Yes:
+            return
+        try:
+            cleared = self.queue_manager.clear_all(self.paths.archive_file)
+        except QueueBusyError:
+            QMessageBox.warning(
+                self,
+                self._tr("dialog.clear_all_active.title"),
+                self._tr("dialog.clear_all_active.message"),
+            )
+            return
+        except Exception as error:
+            LOGGER.exception("Could not clear download state")
+            QMessageBox.critical(
+                self,
+                self._tr("dialog.clear_all_failed.title"),
+                self._tr("dialog.clear_all_failed.message", message=str(error)),
+            )
+            return
+
+        self.queue_model.set_locked_items(set())
+        self.queue_model.replace_items([])
+        self._last_persist.clear()
+        self._pending_thumbnails.clear()
+        self.current_progress.setValue(0)
+        self.progress_details.clear()
+        self.phase_label.setText(self._tr("status.ready"))
+        self.analysis_phase_label.setText(self._tr("status.ready_analyze"))
+        self.log_panel.clear()
+        self._append_log(
+            self._tr(
+                "log.cleared_all",
+                queue=cleared.queue_items,
+                history=cleared.history_entries,
+                archive=cleared.archive_entries,
+            )
+        )
+        self._update_queue_summary()
+        self.tabs.setCurrentIndex(self.analyze_tab_index)
+        self.statusBar().showMessage(self._tr("status.cleared_all"), 5000)
 
     def _mode_changed(self) -> None:
         mode = DownloadMode(str(self.mode_combo.currentData()))

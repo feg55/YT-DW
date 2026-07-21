@@ -68,6 +68,33 @@ def _status_values(statuses: Iterable[DownloadStatus | str]) -> tuple[str, ...]:
     return tuple(DownloadStatus(status).value for status in statuses)
 
 
+@dataclass(frozen=True, slots=True)
+class ClearedDownloadState:
+    """Number of persistent download records removed by a full reset."""
+
+    queue_items: int
+    history_entries: int
+    archive_entries: int
+
+
+def clear_download_state(database: Database | str | Path) -> ClearedDownloadState:
+    """Atomically clear download state while preserving settings and window state."""
+
+    resolved = _database(database)
+    with resolved.transaction(immediate=True) as connection:
+        queue_items = int(connection.execute("SELECT COUNT(*) FROM queue_items").fetchone()[0])
+        history_entries = int(
+            connection.execute("SELECT COUNT(*) FROM download_history").fetchone()[0]
+        )
+        archive_entries = int(
+            connection.execute("SELECT COUNT(*) FROM download_archive").fetchone()[0]
+        )
+        connection.execute("DELETE FROM download_history")
+        connection.execute("DELETE FROM download_archive")
+        connection.execute("DELETE FROM queue_items")
+    return ClearedDownloadState(queue_items, history_entries, archive_entries)
+
+
 class QueueRepository:
     """Persistent queue CRUD with duplicate-video protection."""
 
@@ -595,7 +622,7 @@ class SettingsRepository:
     save_app_settings = save
 
     def load(self) -> AppSettings:
-        value = self.get(self.APP_KEY, {})
+        value = self.get(self.APP_KEY)
         return AppSettings.from_dict(value) if isinstance(value, dict) else AppSettings()
 
     load_app_settings = load
@@ -611,7 +638,7 @@ class SettingsRepository:
         self.set(self.DOWNLOAD_KEY, settings.to_dict())
 
     def load_download_settings(self) -> DownloadSettings:
-        value = self.get(self.DOWNLOAD_KEY, {})
+        value = self.get(self.DOWNLOAD_KEY)
         return DownloadSettings.from_dict(value) if isinstance(value, dict) else DownloadSettings()
 
 

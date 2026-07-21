@@ -1,1 +1,1 @@
-"""Qt widgets and models for OpenMediaDL."""
+"""Qt widgets and models for YT-DW."""

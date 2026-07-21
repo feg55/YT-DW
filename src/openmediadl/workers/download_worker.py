@@ -82,9 +82,7 @@ class DownloadQueueWorker(QThread):
         max_workers = min(3, max(1, self._download_settings.maximum_concurrent_downloads))
         next_start = 0.0
         try:
-            with ThreadPoolExecutor(
-                max_workers=max_workers, thread_name_prefix="openmediadl"
-            ) as pool:
+            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="yt-dw") as pool:
                 while pending or futures:
                     if self._cancel_all.is_set():
                         for item in pending:

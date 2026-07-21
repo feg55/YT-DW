@@ -8,8 +8,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from yt_dlp.cookies import CookieLoadError
 from yt_dlp.utils import DownloadCancelled
 
+from openmediadl.core.browser_cookies import BrowserCookiesUnavailableError
 from openmediadl.core.downloader import (
     _FFMPEG_CANCEL_EVENT,
     Downloader,
@@ -21,7 +23,12 @@ from openmediadl.core.downloader import (
 from openmediadl.core.error_mapper import ErrorCategory
 from openmediadl.domain.download_item import DownloadItem
 from openmediadl.domain.download_status import DownloadMode, DownloadStatus
-from openmediadl.domain.settings import DownloadSettings, MetadataSettings, VideoQuality
+from openmediadl.domain.settings import (
+    CookieBrowser,
+    DownloadSettings,
+    MetadataSettings,
+    VideoQuality,
+)
 
 
 def _downloader(tmp_path: Path) -> Downloader:
@@ -110,6 +117,182 @@ def test_audio_http_403_retries_once_through_ffmpeg(tmp_path: Path) -> None:
     assert snapshots[-1].phase == "Retrying with FFmpeg"
     assert snapshots[-1].speed is None
     assert snapshots[-1].eta is None
+
+
+def test_auto_browser_retries_authentication_with_detected_cookies(tmp_path: Path) -> None:
+    downloader = _downloader(tmp_path)
+    item = DownloadItem.new(
+        "https://example.test/private",
+        download_mode=DownloadMode.AUDIO,
+    )
+    options = downloader._options(item, tmp_path / "Track.m4a")
+    options["cookiesfrombrowser"] = ("system",)
+    downloaded = {"id": "private"}
+
+    with (
+        patch(
+            "openmediadl.core.downloader.cookie_specs_for_retry",
+            return_value=(("edge",),),
+        ),
+        patch.object(
+            downloader,
+            "_extract_info",
+            side_effect=[RuntimeError("Sign in to confirm your age"), downloaded],
+        ) as extract,
+    ):
+        result = downloader._download_info(item, options)
+
+    assert result is downloaded
+    assert "cookiesfrombrowser" not in extract.call_args_list[0].args[1]
+    assert extract.call_args_list[1].args[1]["cookiesfrombrowser"] == ("edge",)
+
+
+def test_explicit_browser_reads_cookies_only_after_authentication_error(tmp_path: Path) -> None:
+    settings = DownloadSettings(
+        destination_directory=str(tmp_path),
+        cookie_browser=CookieBrowser.CHROME,
+        cookie_profile="Profile 2",
+    )
+    downloader = Downloader(settings, MetadataSettings(), tmp_path / "archive.txt")
+    item = DownloadItem.new(
+        "https://example.test/public",
+        download_mode=DownloadMode.AUDIO,
+    )
+    options = downloader._options(item, tmp_path / "Track.m4a")
+    downloaded = {"id": "public"}
+
+    with patch.object(
+        downloader,
+        "_extract_info",
+        side_effect=[RuntimeError("Sign in to confirm your age"), downloaded],
+    ) as extract:
+        result = downloader._download_info(item, options)
+
+    assert result is downloaded
+    assert "cookiesfrombrowser" not in extract.call_args_list[0].args[1]
+    assert extract.call_args_list[1].args[1]["cookiesfrombrowser"] == (
+        "chrome",
+        "Profile 2",
+    )
+
+
+def test_auto_cookie_load_failure_is_actionable_for_download(tmp_path: Path) -> None:
+    downloader = _downloader(tmp_path)
+    item = DownloadItem.new(
+        "https://example.test/private",
+        download_mode=DownloadMode.AUDIO,
+    )
+
+    with (
+        patch(
+            "openmediadl.core.downloader.cookie_specs_for_retry",
+            return_value=(("edge",),),
+        ),
+        patch.object(
+            downloader,
+            "_extract_info",
+            side_effect=[
+                RuntimeError("Sign in to confirm your age"),
+                CookieLoadError("failed to load cookies"),
+            ],
+        ),
+        pytest.raises(BrowserCookiesUnavailableError, match="edge"),
+    ):
+        downloader._download_info(item, {})
+
+
+def test_download_cookie_retries_continue_on_load_and_authentication_errors(
+    tmp_path: Path,
+) -> None:
+    downloader = _downloader(tmp_path)
+    item = DownloadItem.new(
+        "https://example.test/private",
+        download_mode=DownloadMode.AUDIO,
+    )
+    downloaded = {"id": "private"}
+
+    with (
+        patch(
+            "openmediadl.core.downloader.cookie_specs_for_retry",
+            return_value=(("chrome",), ("firefox",), ("edge",)),
+        ),
+        patch.object(
+            downloader,
+            "_extract_info",
+            side_effect=[
+                RuntimeError("Sign in to confirm your age"),
+                CookieLoadError("failed to load cookies"),
+                RuntimeError("Sign in to confirm your age"),
+                downloaded,
+            ],
+        ) as extract,
+    ):
+        result = downloader._download_info(item, {})
+
+    assert result is downloaded
+    assert [call.args[1].get("cookiesfrombrowser") for call in extract.call_args_list] == [
+        None,
+        ("chrome",),
+        ("firefox",),
+        ("edge",),
+    ]
+
+
+def test_download_cookie_retries_stop_when_cancelled(tmp_path: Path) -> None:
+    cancel_event = threading.Event()
+    downloader = Downloader(
+        DownloadSettings(destination_directory=str(tmp_path)),
+        MetadataSettings(),
+        tmp_path / "archive.txt",
+        cancel_event,
+    )
+    item = DownloadItem.new(
+        "https://example.test/private",
+        download_mode=DownloadMode.AUDIO,
+    )
+    calls = 0
+
+    def extract(_url: str, options: dict[str, object]) -> dict[str, object]:
+        nonlocal calls
+        calls += 1
+        if "cookiesfrombrowser" in options:
+            cancel_event.set()
+            raise CookieLoadError("failed to load cookies")
+        raise RuntimeError("Sign in to confirm your age")
+
+    with (
+        patch(
+            "openmediadl.core.downloader.cookie_specs_for_retry",
+            return_value=(("chrome",), ("firefox",)),
+        ),
+        patch.object(downloader, "_extract_info", side_effect=extract),
+        pytest.raises(DownloadCancelled),
+    ):
+        downloader._download_info(item, {})
+    assert calls == 2
+
+
+def test_disabled_browser_does_not_retry_download_authentication(tmp_path: Path) -> None:
+    settings = DownloadSettings(
+        destination_directory=str(tmp_path),
+        cookie_browser=CookieBrowser.DISABLED,
+    )
+    downloader = Downloader(settings, MetadataSettings(), tmp_path / "archive.txt")
+    item = DownloadItem.new(
+        "https://example.test/private",
+        download_mode=DownloadMode.AUDIO,
+    )
+
+    with (
+        patch.object(
+            downloader,
+            "_extract_info",
+            side_effect=RuntimeError("Sign in to confirm your age"),
+        ) as extract,
+        pytest.raises(RuntimeError, match="Sign in"),
+    ):
+        downloader._download_info(item, {})
+    extract.assert_called_once()
 
 
 def test_cancellable_ffmpeg_wait_terminates_its_exact_child() -> None:

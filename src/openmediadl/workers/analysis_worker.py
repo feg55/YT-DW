@@ -53,9 +53,7 @@ class AnalysisWorker(QThread):
         thumbnail_futures: set[Future[Path | None]] = set()
         thumbnail_futures_lock = threading.Lock()
         thumbnail_slots = threading.BoundedSemaphore(12)
-        thumbnail_pool = ThreadPoolExecutor(
-            max_workers=4, thread_name_prefix="openmediadl-thumbnails"
-        )
+        thumbnail_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="yt-dw-thumbnails")
 
         def thumbnail_finished(future: Future[Path | None], source_url: str) -> None:
             try:

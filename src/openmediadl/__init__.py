@@ -1,4 +1,4 @@
-"""OpenMediaDL desktop application package."""
+"""YT-DW desktop application package (internal package name: openmediadl)."""
 
 from __future__ import annotations
 

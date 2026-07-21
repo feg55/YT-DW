@@ -11,12 +11,24 @@ from openmediadl.database import (
 )
 from openmediadl.domain import (
     AppSettings,
+    CookieBrowser,
     DownloadItem,
     DownloadMode,
     DownloadStatus,
     LanguagePreference,
     ThemePreference,
 )
+
+
+def test_fresh_settings_use_system_browser_cookie_mode(tmp_path: Path) -> None:
+    repository = SettingsRepository(Database(tmp_path / "fresh.sqlite3"))
+
+    application = repository.load()
+    downloads = repository.load_download_settings()
+
+    assert application.downloads is not None
+    assert application.downloads.cookie_browser is CookieBrowser.SYSTEM
+    assert downloads.cookie_browser is CookieBrowser.SYSTEM
 
 
 def test_queue_item_round_trips_across_database_instances(tmp_path: Path) -> None:

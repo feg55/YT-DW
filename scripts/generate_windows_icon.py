@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-PNG_PATH = PROJECT_ROOT / "src" / "openmediadl" / "resources" / "icons" / "openmediadl.png"
+PNG_PATH = PROJECT_ROOT / "src" / "openmediadl" / "resources" / "icons" / "yt-dw.png"
 ICO_PATH = PNG_PATH.with_suffix(".ico")
 ICON_SIZES = (16, 24, 32, 48, 64, 128, 256)
 

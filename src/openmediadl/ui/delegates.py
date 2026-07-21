@@ -162,6 +162,9 @@ class ProgressDelegate(QStyledItemDelegate):
         progress.text = f"{value}%"
         progress.textVisible = True
         progress.textAlignment = Qt.AlignmentFlag.AlignCenter
+        progress.palette = option.palette
+        progress.direction = option.direction
+        progress.state = option.state
         progress_style = option.widget.style() if option.widget else QApplication.style()
         progress_style.drawControl(
             QStyle.ControlElement.CE_ProgressBar, progress, painter, option.widget

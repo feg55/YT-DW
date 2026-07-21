@@ -11,7 +11,15 @@ from urllib.parse import urlparse
 
 import yt_dlp
 
+from openmediadl.core.browser_cookies import (
+    BrowserCookiesUnavailableError,
+    cookie_specs_for_retry,
+    is_authentication_error,
+    is_cookie_load_error,
+    normalize_browser_choice,
+)
 from openmediadl.core.metadata_cleaner import clean_track_title, normalize_text
+from openmediadl.domain.settings import CookieBrowser
 
 LOGGER = logging.getLogger(__name__)
 
@@ -23,7 +31,7 @@ class AnalysisOptions:
     use_channel_artist: bool = True
     use_playlist_album: bool = True
     use_playlist_track: bool = True
-    cookies_browser: str | None = None
+    cookies_browser: str | None = CookieBrowser.SYSTEM.value
     cookies_profile: str | None = None
     socket_timeout: float = 30.0
     retries: int = 5
@@ -97,11 +105,9 @@ class Analyzer:
             yield from self._analyze_url(url)
 
     def _analyze_url(self, url: str) -> Iterator[AnalyzedEntry]:
-        logger = _YtdlpLogger()
         options: dict[str, Any] = {
             "quiet": True,
             "no_warnings": False,
-            "logger": logger,
             "extract_flat": "in_playlist",
             "lazy_playlist": True,
             "ignoreerrors": True,
@@ -110,39 +116,82 @@ class Analyzer:
             "retries": self.options.retries,
             "noplaylist": False,
         }
-        match_count = self._match_count
         if self.entry_callback is not None:
             options["match_filter"] = self._capture_entry
-        cookies = _cookies_from_browser(self.options.cookies_browser, self.options.cookies_profile)
-        if cookies:
-            options["cookiesfrombrowser"] = cookies
+        browser = normalize_browser_choice(self.options.cookies_browser)
+        try:
+            yield from self._analyze_once(url, options)
+            return
+        except Exception as error:
+            if not is_authentication_error(error) or browser is CookieBrowser.DISABLED:
+                raise
+            authentication_error = error
 
-        with yt_dlp.YoutubeDL(options) as ydl:
-            result = ydl.extract_info(url, download=False)
-            if not result:
-                if self._match_count > match_count and logger.last_error:
-                    raise RuntimeError(logger.last_error)
-                if self._match_count > match_count:
-                    return
-                raise ValueError(logger.last_error or f"No media metadata was returned for {url}")
-            if self.entry_callback is not None and self._match_count > match_count:
-                if logger.last_error:
-                    raise RuntimeError(logger.last_error)
+        if self.cancel_event.is_set():
+            return
+        attempts: list[str] = []
+        last_error: BaseException = authentication_error
+        for cookies in cookie_specs_for_retry(browser, self.options.cookies_profile):
+            if self.cancel_event.is_set():
                 return
-            if _has_entries(result):
-                playlist = result
-                entries = playlist.get("entries") or ()
-                for ordinal, raw_entry in enumerate(entries, start=1):
-                    if self.cancel_event.is_set():
-                        return
-                    if not isinstance(raw_entry, Mapping):
-                        LOGGER.warning(
-                            "Skipping unavailable playlist entry %s from %s", ordinal, url
-                        )
-                        continue
-                    yield self._to_entry(raw_entry, playlist, ordinal)
-            else:
-                yield self._to_entry(result, None, 1)
+            attempts.append(cookies[0])
+            LOGGER.info(
+                "Authentication is required; retrying analysis with cookies from %s",
+                cookies[0],
+            )
+            authenticated_options = dict(options)
+            authenticated_options["cookiesfrombrowser"] = cookies
+            try:
+                yield from self._analyze_once(url, authenticated_options)
+                return
+            except Exception as cookie_error:
+                if not (
+                    is_cookie_load_error(cookie_error) or is_authentication_error(cookie_error)
+                ):
+                    raise
+                last_error = cookie_error
+                LOGGER.warning(
+                    "Browser cookie attempt with %s did not authenticate: %s",
+                    cookies[0],
+                    cookie_error,
+                )
+        raise BrowserCookiesUnavailableError(attempts) from last_error
+
+    def _analyze_once(self, url: str, options: dict[str, Any]) -> Iterator[AnalyzedEntry]:
+        logger = _YtdlpLogger()
+        attempt_options = dict(options)
+        attempt_options["logger"] = logger
+        match_count = self._match_count
+
+        with yt_dlp.YoutubeDL(attempt_options) as ydl:
+            result = ydl.extract_info(url, download=False)
+        if not result:
+            if self._match_count > match_count and logger.last_error:
+                if is_authentication_error(ValueError(logger.last_error)):
+                    raise ValueError(logger.last_error)
+                LOGGER.warning("Some playlist entries were skipped: %s", logger.last_error)
+                return
+            if self._match_count > match_count:
+                return
+            raise ValueError(logger.last_error or f"No media metadata was returned for {url}")
+        if self.entry_callback is not None and self._match_count > match_count:
+            if logger.last_error:
+                if is_authentication_error(ValueError(logger.last_error)):
+                    raise ValueError(logger.last_error)
+                LOGGER.warning("Some playlist entries were skipped: %s", logger.last_error)
+            return
+        if _has_entries(result):
+            playlist = result
+            entries = playlist.get("entries") or ()
+            for ordinal, raw_entry in enumerate(entries, start=1):
+                if self.cancel_event.is_set():
+                    return
+                if not isinstance(raw_entry, Mapping):
+                    LOGGER.warning("Skipping unavailable playlist entry %s from %s", ordinal, url)
+                    continue
+                yield self._to_entry(raw_entry, playlist, ordinal)
+        else:
+            yield self._to_entry(result, None, 1)
 
     def _capture_entry(self, raw: Mapping[str, Any], *, incomplete: bool = False) -> None:
         """Emit metadata as yt-dlp encounters each entry during extraction."""
@@ -284,13 +333,6 @@ def _best_thumbnail(value: object) -> str:
         penalty = 10**12 if width > 2560 or height > 2560 else 0
         candidates.append((area - penalty, str(thumbnail["url"])))
     return max(candidates, default=(0, ""), key=lambda pair: pair[0])[1]
-
-
-def _cookies_from_browser(browser: str | None, profile: str | None) -> tuple[str, ...] | None:
-    if not browser or browser.casefold() == "none":
-        return None
-    clean_browser = browser.casefold().strip()
-    return (clean_browser, profile.strip()) if profile and profile.strip() else (clean_browser,)
 
 
 def _optional_int(value: object) -> int | None:

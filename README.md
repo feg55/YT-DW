@@ -1,6 +1,6 @@
-# OpenMediaDL
+# YT-DW
 
-OpenMediaDL is a local desktop application for inspecting and downloading media with
+YT-DW is a local desktop application for inspecting and downloading media with
 [yt-dlp](https://github.com/yt-dlp/yt-dlp). It provides a reviewable workflow for individual
 videos, playlists, and channels: analyze the source, edit the proposed metadata, then run and
 monitor the download queue.
@@ -10,7 +10,7 @@ and optional embedded cover art. Video downloads and quality selection are also 
 is no application-level 100-item playlist limit.
 
 > [!IMPORTANT]
-> Download only media that you own or are authorized to save. OpenMediaDL does not bypass DRM,
+> Download only media that you own or are authorized to save. YT-DW does not bypass DRM,
 > paywalls, authentication, or access controls. You are responsible for the source service's terms
 > and applicable law.
 
@@ -32,8 +32,9 @@ stored in SQLite so unfinished work can be restored after an application restart
 
 The interface defaults to the dark theme. Language defaults to the operating-system locale:
 Russian locales use the Russian interface and all other locales fall back to English. Settings
-allow switching at runtime among Dark, Light, and System themes and among System, Русский, and
-English languages without rebuilding the tabs or queue model.
+allow switching at runtime among Dark, Original red-and-black, Light, and System themes and among
+System, Русский, and English languages without rebuilding the tabs or queue model. Dark remains
+the default theme.
 
 ## Artwork
 
@@ -64,8 +65,14 @@ project artwork is the application icon described in [docs/visual-assets.md](doc
   full diagnostic details remain available in rotating log files.
 - Detect FFmpeg and FFprobe from `PATH`, an optional local tools directory, or a directory selected
   in advanced settings.
+- Retry authentication-protected media with cookies from the OS default browser, then from locally
+  detected Chrome, Firefox, Edge, Opera, and other supported browsers. An explicitly selected
+  browser and profile is tried first. Public media is always attempted without cookies.
 - Keep browser-cookie data private: only the selected browser and optional profile identifier are
-  stored, never the cookie contents.
+  stored, never the cookie contents. yt-dlp performs the extraction directly; `browser_cookie3` is
+  not required.
+- Clear the queue, history, and download archive in one confirmed action so the same playlist can
+  be analyzed and downloaded again without deleting settings, pasted URLs, or downloaded media.
 
 ## Requirements
 
@@ -75,7 +82,7 @@ project artwork is the application icon described in [docs/visual-assets.md](doc
 - Network access to the requested media source
 
 Some yt-dlp extractors also require a supported JavaScript runtime such as Deno or Node. Install
-one separately if yt-dlp requests it. OpenMediaDL does not fetch runtimes, FFmpeg, or other
+one separately if yt-dlp requests it. YT-DW does not fetch runtimes, FFmpeg, or other
 third-party executables.
 
 ## Install and run from source
@@ -108,7 +115,7 @@ CI. Compatible package ranges are declared separately in `pyproject.toml`.
 1. Obtain a build through the [official FFmpeg download page](https://ffmpeg.org/download.html) or
    your operating system's trusted package manager.
 2. Keep the executables outside this repository.
-3. Add the directory containing `ffmpeg` and `ffprobe` to `PATH`, or select it in OpenMediaDL's
+3. Add the directory containing `ffmpeg` and `ffprobe` to `PATH`, or select it in YT-DW's
    advanced settings.
 4. Verify both commands in a terminal:
 
@@ -117,7 +124,7 @@ ffmpeg -version
 ffprobe -version
 ```
 
-OpenMediaDL validates both executables before starting operations that depend on them. FFmpeg is
+YT-DW validates both executables before starting operations that depend on them. FFmpeg is
 not bundled in the repository, source distribution, or default PyInstaller build.
 
 ## Metadata and cover behavior
@@ -128,7 +135,7 @@ preserved. Optional trailing labels such as `Official Video`, `Official Audio`, 
 `Visualizer` are removed case-insensitively. If a rule would produce an empty title, the normalized
 original title is restored.
 
-For audio downloads, OpenMediaDL writes the following MP4 atoms when their corresponding values
+For audio downloads, YT-DW writes the following MP4 atoms when their corresponding values
 are available:
 
 | Atom | Value |
@@ -154,18 +161,29 @@ JPEG** is enabled.
 
 ## Local data and privacy
 
-OpenMediaDL has no companion server. Analysis, downloads, queue state, thumbnails, settings, and
+YT-DW has no companion server. Analysis, downloads, queue state, thumbnails, settings, and
 logs remain on the user's computer.
 
 | Platform | Persistent data | Thumbnail cache |
 | --- | --- | --- |
-| Windows | `%LOCALAPPDATA%\OpenMediaDL` | `%LOCALAPPDATA%\OpenMediaDL\cache` |
-| macOS | `~/Library/Application Support/OpenMediaDL` | `~/Library/Caches/OpenMediaDL` |
-| Linux | `$XDG_DATA_HOME/openmediadl` or `~/.local/share/openmediadl` | `$XDG_CACHE_HOME/openmediadl` or `~/.cache/openmediadl` |
+| Windows | `%LOCALAPPDATA%\YT-DW` | `%LOCALAPPDATA%\YT-DW\cache` |
+| macOS | `~/Library/Application Support/YT-DW` | `~/Library/Caches/YT-DW` |
+| Linux | `$XDG_DATA_HOME/yt-dw` or `~/.local/share/yt-dw` | `$XDG_CACHE_HOME/yt-dw` or `~/.cache/yt-dw` |
 
 The persistent data directory contains the SQLite database and rotating logs. Raw cookies,
 complete sensitive request headers, downloaded media, and cover images are not copied into the
 database or logs.
+
+The default is **Automatic (system browser + fallback)**. YT-DW reads cookies only after the
+source reports that sign-in, age verification, or browser cookies are required. It tries the OS
+default first when it can be identified, followed by installed supported browsers in a stable
+order. Legacy missing or `null` preferences migrate to this automatic mode; explicit `none`
+continues to disable browser-cookie access.
+
+For backward compatibility, when no new `YT-DW` database exists but a legacy `OpenMediaDL`
+database is present, the application continues using the legacy directory and filenames. Queue
+items, settings, history, cached thumbnails, logs, and the download archive therefore remain
+available without a risky automatic move.
 
 ## Project structure
 
@@ -222,10 +240,10 @@ PyInstaller builds for its current operating system. Create the Windows single-f
 Windows:
 
 ```powershell
-.\.venv\Scripts\python.exe -m PyInstaller --clean --noconfirm OpenMediaDL.spec
+.\.venv\Scripts\python.exe -m PyInstaller --clean --noconfirm YT-DW.spec
 ```
 
-The result is the standalone `dist\OpenMediaDL.exe`. It does not require a neighboring `_internal`
+The result is the standalone `dist\YT-DW.exe`. It does not require a neighboring `_internal`
 directory or a separately installed Python runtime. At launch, PyInstaller extracts its bundled
 runtime into a temporary directory, so the first start can be slightly slower. The GitHub Actions
 workflow runs the same spec and publishes the executable in its Windows artifact. Build Linux and
@@ -247,7 +265,7 @@ macOS packages natively on those platforms.
 
 ## Visual assets
 
-OpenMediaDL needs only one supplied image: the square application icon. The PNG is used by the Qt
+YT-DW needs only one supplied image: the square application icon. The PNG is used by the Qt
 window and a derived multi-resolution ICO is embedded in the Windows executable. No README banner,
 social preview, placeholder cover, or screenshot artwork is part of the application bundle. See
 [docs/visual-assets.md](docs/visual-assets.md) for paths and export details. A Russian icon-only
@@ -266,7 +284,7 @@ third-party executables.
 
 ## License and acknowledgements
 
-OpenMediaDL source code is available under the [MIT License](LICENSE). Dependencies and external
+YT-DW source code is available under the [MIT License](LICENSE). Dependencies and external
 tools retain their own licenses:
 
 - [Qt for Python / PySide6](https://doc.qt.io/qtforpython-6/) — LGPLv3, GPLv2/GPLv3, or commercial,

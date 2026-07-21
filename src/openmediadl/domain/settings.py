@@ -17,16 +17,22 @@ class VideoQuality(StrEnum):
 
 
 class CookieBrowser(StrEnum):
+    SYSTEM = "system"
+    DISABLED = "none"
     CHROME = "chrome"
     CHROMIUM = "chromium"
     EDGE = "edge"
     FIREFOX = "firefox"
     BRAVE = "brave"
+    OPERA = "opera"
+    SAFARI = "safari"
     VIVALDI = "vivaldi"
+    WHALE = "whale"
 
 
 class ThemePreference(StrEnum):
     DARK = "dark"
+    ORIGINAL = "original"
     LIGHT = "light"
     SYSTEM = "system"
 
@@ -129,7 +135,7 @@ class DownloadSettings:
     delay_between_items: float = 0.0
     socket_timeout: float = 30.0
     bandwidth_limit: int | None = None
-    cookie_browser: CookieBrowser | None = None
+    cookie_browser: CookieBrowser | None = CookieBrowser.SYSTEM
     cookie_profile: str | None = None
     ffmpeg_directory: str | None = None
     skip_download_archive: bool = True
@@ -143,18 +149,30 @@ class DownloadSettings:
         if isinstance(self.quality, str):
             self.quality = VideoQuality(self.quality)
         if isinstance(self.cookie_browser, str):
-            self.cookie_browser = CookieBrowser(self.cookie_browser)
+            try:
+                self.cookie_browser = CookieBrowser(self.cookie_browser)
+            except ValueError:
+                self.cookie_browser = CookieBrowser.SYSTEM
 
     def to_dict(self) -> dict[str, Any]:
         result = asdict(self)
         result["quality"] = self.quality.value
-        if self.cookie_browser is not None:
-            result["cookie_browser"] = self.cookie_browser.value
+        result["cookie_browser"] = (
+            self.cookie_browser.value
+            if self.cookie_browser is not None
+            else CookieBrowser.DISABLED.value
+        )
         return result
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> Self:
-        return cls(**_known_values(cls, values))
+        normalized = dict(values)
+        # Older settings omitted this field or stored JSON null. Migrate both
+        # to automatic browser detection; the explicit "none" value remains
+        # the persistent opt-out.
+        if normalized.get("cookie_browser") is None:
+            normalized["cookie_browser"] = CookieBrowser.SYSTEM.value
+        return cls(**_known_values(cls, normalized))
 
     @property
     def video_quality(self) -> VideoQuality:
@@ -216,7 +234,7 @@ class AppSettings:
             else MetadataSettings(),
             downloads=DownloadSettings.from_dict(downloads)
             if isinstance(downloads, dict)
-            else DownloadSettings(),
+            else DownloadSettings.from_dict({}),
             appearance=AppearanceSettings.from_dict(appearance)
             if isinstance(appearance, dict)
             else AppearanceSettings(),
