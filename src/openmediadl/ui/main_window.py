@@ -37,6 +37,7 @@ from openmediadl.core.ffmpeg_service import FFmpegInstallation, FFmpegService
 from openmediadl.core.filename_service import ensure_unique_path, sanitize_filename
 from openmediadl.core.metadata_cleaner import clean_track_title
 from openmediadl.core.queue_manager import QueueBusyError, QueueManager
+from openmediadl.core.runtime_tools import RuntimeToolsService, RuntimeToolsStatus
 from openmediadl.core.thumbnail_service import ThumbnailService
 from openmediadl.database.repositories import SettingsRepository, WindowStateRepository
 from openmediadl.domain.download_item import DownloadItem
@@ -54,6 +55,7 @@ from openmediadl.ui.settings_dialog import SettingsDialog
 from openmediadl.workers.analysis_worker import AnalysisWorker
 from openmediadl.workers.download_worker import DownloadQueueWorker
 from openmediadl.workers.ffmpeg_worker import FFmpegCheckWorker
+from openmediadl.workers.runtime_tools_worker import RuntimeToolsWorker
 
 LOGGER = logging.getLogger(__name__)
 
@@ -73,6 +75,7 @@ class MainWindow(QMainWindow):
         *,
         translator: Translator | None = None,
         appearance_controller: AppearanceController | None = None,
+        runtime_tools_service: RuntimeToolsService | None = None,
     ) -> None:
         super().__init__()
         self.paths = paths
@@ -81,6 +84,7 @@ class MainWindow(QMainWindow):
         self.window_state_repository = window_state_repository
         self.ffmpeg_service = ffmpeg_service
         self.thumbnail_service = thumbnail_service
+        self.runtime_tools_service = runtime_tools_service
         self.settings = settings_repository.load()
         appearance = self.settings.appearance or AppearanceSettings()
         self.translator = translator or Translator(appearance.language)
@@ -93,10 +97,12 @@ class MainWindow(QMainWindow):
             self.appearance_controller.apply(appearance.theme)
         self._analysis_worker: AnalysisWorker | None = None
         self._download_worker: DownloadQueueWorker | None = None
-        self._ffmpeg_check_worker: FFmpegCheckWorker | None = None
+        self._ffmpeg_check_worker: FFmpegCheckWorker | RuntimeToolsWorker | None = None
         self._ffmpeg_installation: FFmpegInstallation | None = None
         self._ffmpeg_checked_directory: str | None = None
         self._ffmpeg_recheck_requested = False
+        self._js_runtime_path: str | None = None
+        self._closing = False
         self._last_persist: dict[str, tuple[float, DownloadStatus]] = {}
         self._pending_thumbnails: dict[str, str] = {}
         self._analysis_mode: DownloadMode | None = None
@@ -137,6 +143,17 @@ class MainWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._tab_changed)
         layout.addWidget(self.tabs, 1)
         self.setCentralWidget(root)
+        self.runtime_tools_progress = QProgressBar()
+        self.runtime_tools_progress.setRange(0, 1000)
+        self.runtime_tools_progress.setValue(0)
+        self.runtime_tools_progress.setFixedWidth(190)
+        self.runtime_tools_progress.setTextVisible(False)
+        self.runtime_tools_progress.hide()
+        self.runtime_tools_retry_button = QPushButton(self._tr("action.retry_tools"))
+        self.runtime_tools_retry_button.clicked.connect(self._check_ffmpeg)
+        self.runtime_tools_retry_button.hide()
+        self.statusBar().addPermanentWidget(self.runtime_tools_progress)
+        self.statusBar().addPermanentWidget(self.runtime_tools_retry_button)
 
     def _build_analyze_tab(self) -> QWidget:
         page = QWidget()
@@ -398,6 +415,7 @@ class MainWindow(QMainWindow):
         self.retry_button.setText(self._tr("action.retry_failed"))
         self.remove_completed_button.setText(self._tr("action.remove_completed"))
         self.clear_all_button.setText(self._tr("action.clear_all"))
+        self.runtime_tools_retry_button.setText(self._tr("action.retry_tools"))
         self.open_output_button.setText(self._tr("action.open_output"))
         self.open_logs_button.setText(self._tr("action.open_logs"))
         self.log_panel.setPlaceholderText(self._tr("placeholder.activity_log"))
@@ -537,6 +555,7 @@ class MainWindow(QMainWindow):
             cookies_profile=downloads.cookie_profile,
             socket_timeout=downloads.socket_timeout,
             retries=downloads.retry_count,
+            js_runtime_path=self._js_runtime_path,
         )
 
         def load_thumbnail(url: str, video_id: str) -> Path | None:
@@ -806,24 +825,6 @@ class MainWindow(QMainWindow):
         except OSError as error:
             QMessageBox.critical(self, self._tr("dialog.destination_unavailable.title"), str(error))
             return
-        candidates: list[DownloadItem] = []
-        for item in self.queue_model.selected_items():
-            prepared = self.queue_manager.prepare_for_download(
-                item.id,
-                skip_archived=downloads.skip_download_archive,
-            )
-            if prepared is None:
-                continue
-            self.queue_model.update_item(prepared)
-            if prepared.status not in {DownloadStatus.COMPLETED, DownloadStatus.SKIPPED}:
-                candidates.append(prepared)
-        if not candidates:
-            QMessageBox.information(
-                self,
-                self._tr("dialog.nothing_selected.title"),
-                self._tr("dialog.nothing_selected.message"),
-            )
-            return
         configured_directory = downloads.ffmpeg_directory or None
         installation = (
             self._ffmpeg_installation
@@ -845,11 +846,36 @@ class MainWindow(QMainWindow):
                 self._tr("dialog.ffmpeg_required.message"),
             )
             return
+        effective_downloads = replace(downloads)
         if installation.directory is not None:
             ffmpeg_directory = self.ffmpeg_service.ensure_on_path(installation.directory)
-            downloads.ffmpeg_directory = str(ffmpeg_directory)
+            # Keep the resolved managed/bundled/PATH location runtime-only.
+            # ``downloads.ffmpeg_directory`` remains an explicit user override.
+            effective_downloads.ffmpeg_directory = str(ffmpeg_directory)
+        candidates: list[DownloadItem] = []
+        for item in self.queue_model.selected_items():
+            prepared = self.queue_manager.prepare_for_download(
+                item.id,
+                skip_archived=downloads.skip_download_archive,
+            )
+            if prepared is None:
+                continue
+            self.queue_model.update_item(prepared)
+            if prepared.status not in {DownloadStatus.COMPLETED, DownloadStatus.SKIPPED}:
+                candidates.append(prepared)
+        if not candidates:
+            QMessageBox.information(
+                self,
+                self._tr("dialog.nothing_selected.title"),
+                self._tr("dialog.nothing_selected.message"),
+            )
+            return
         self._download_worker = DownloadQueueWorker(
-            candidates, downloads, metadata, self.paths.archive_file
+            candidates,
+            effective_downloads,
+            metadata,
+            self.paths.archive_file,
+            js_runtime_path=self._js_runtime_path,
         )
         self._download_worker.item_updated.connect(self._on_item_updated)
         self._download_worker.phase_changed.connect(self._on_download_phase)
@@ -1160,33 +1186,119 @@ class MainWindow(QMainWindow):
             self._check_ffmpeg()
 
     def _check_ffmpeg(self) -> None:
+        if self._closing:
+            return
         downloads = self.settings.downloads or DownloadSettings()
         configured_directory = downloads.ffmpeg_directory or None
         if self._ffmpeg_check_worker and self._ffmpeg_check_worker.isRunning():
             self._ffmpeg_recheck_requested = True
-            self.statusBar().showMessage(self._tr("status.checking_ffmpeg"), 0)
+            status_key = (
+                "status.preparing_tools"
+                if self.runtime_tools_service is not None
+                else "status.checking_ffmpeg"
+            )
+            self.statusBar().showMessage(self._tr(status_key), 0)
             return
         self._ffmpeg_recheck_requested = False
         self._ffmpeg_installation = None
         self._ffmpeg_checked_directory = None
         self.download_button.setEnabled(False)
-        worker = FFmpegCheckWorker(self.ffmpeg_service, configured_directory)
-        worker.result_ready.connect(self._on_ffmpeg_checked)
+        self.runtime_tools_retry_button.hide()
+        if self.runtime_tools_service is not None:
+            self.analyze_button.setEnabled(False)
+            self.runtime_tools_progress.setValue(0)
+            self.runtime_tools_progress.show()
+            runtime_worker = RuntimeToolsWorker(
+                self.runtime_tools_service,
+                configured_directory,
+            )
+            runtime_worker.progress_changed.connect(self._on_runtime_tools_progress)
+            runtime_worker.result_ready.connect(self._on_runtime_tools_ready)
+            runtime_worker.setup_failed.connect(self._on_runtime_tools_failed)
+            worker: FFmpegCheckWorker | RuntimeToolsWorker = runtime_worker
+            self.statusBar().showMessage(self._tr("status.preparing_tools"), 0)
+        else:
+            worker = FFmpegCheckWorker(self.ffmpeg_service, configured_directory)
+            worker.result_ready.connect(self._on_ffmpeg_checked)
+            self.statusBar().showMessage(self._tr("status.checking_ffmpeg"), 0)
         worker.finished.connect(self._ffmpeg_check_done)
         self._ffmpeg_check_worker = worker
-        self.statusBar().showMessage(self._tr("status.checking_ffmpeg"), 0)
         worker.start()
+
+    @Slot(str, int, int)
+    def _on_runtime_tools_progress(self, tool: str, downloaded: int, total: int) -> None:
+        bounded_total = max(1, total)
+        fraction = min(1.0, max(0.0, downloaded / bounded_total))
+        self.runtime_tools_progress.setValue(round(fraction * 1000))
+        tool_label = "FFmpeg" if tool == "ffmpeg" else "Deno"
+        if downloaded >= total > 0:
+            message = self._tr("status.installing_tool", tool=tool_label)
+        else:
+            message = self._tr(
+                "status.downloading_tool",
+                tool=tool_label,
+                percent=round(fraction * 100),
+            )
+        self.statusBar().showMessage(message, 0)
+
+    @Slot(object)
+    def _on_runtime_tools_ready(self, value: object) -> None:
+        worker = self._ffmpeg_check_worker
+        if not isinstance(value, RuntimeToolsStatus) or not isinstance(worker, RuntimeToolsWorker):
+            return
+        current_directory = (self.settings.downloads or DownloadSettings()).ffmpeg_directory or None
+        if worker.manual_ffmpeg_directory != current_directory:
+            self._ffmpeg_recheck_requested = True
+            return
+        installation = FFmpegInstallation(
+            ffmpeg=value.ffmpeg,
+            ffprobe=value.ffprobe,
+            ffmpeg_version=value.ffmpeg_version,
+            ffprobe_version=value.ffprobe_version,
+        )
+        self._js_runtime_path = str(value.deno) if value.deno else None
+        self._apply_ffmpeg_result(installation, current_directory)
+        self.runtime_tools_progress.hide()
+        analysis_idle = not self._analysis_worker or not self._analysis_worker.isRunning()
+        if value.available and analysis_idle:
+            self.analyze_button.setEnabled(True)
+        if value.available and not value.errors:
+            self.runtime_tools_retry_button.hide()
+            self.statusBar().showMessage(self._tr("status.tools_ready"), 4000)
+            self._append_log(self._tr("log.tools_ready"))
+            return
+        self.analyze_button.setEnabled(False)
+        self.download_button.setEnabled(False)
+        self.runtime_tools_retry_button.show()
+        self.statusBar().showMessage(self._tr("status.tools_partial"), 0)
+        for message in value.errors:
+            self._append_log(self._tr("log.tools_error", message=message))
+
+    @Slot(str)
+    def _on_runtime_tools_failed(self, message: str) -> None:
+        self.runtime_tools_progress.hide()
+        self.runtime_tools_retry_button.show()
+        self.analyze_button.setEnabled(False)
+        self.download_button.setEnabled(False)
+        self.statusBar().showMessage(self._tr("status.tools_partial"), 0)
+        self._append_log(self._tr("log.tools_error", message=message))
 
     @Slot(object)
     def _on_ffmpeg_checked(self, value: object) -> None:
         worker = self._ffmpeg_check_worker
-        if not isinstance(value, FFmpegInstallation) or worker is None:
+        if not isinstance(value, FFmpegInstallation) or not isinstance(worker, FFmpegCheckWorker):
             return
         current_directory = (self.settings.downloads or DownloadSettings()).ffmpeg_directory or None
         if worker.configured_directory != current_directory:
             self._ffmpeg_recheck_requested = True
             return
-        installation = value
+        self._apply_ffmpeg_result(value, current_directory)
+
+    def _apply_ffmpeg_result(
+        self,
+        installation: FFmpegInstallation,
+        current_directory: str | None,
+    ) -> None:
         self._ffmpeg_installation = installation
         self._ffmpeg_checked_directory = current_directory
         if installation.available:
@@ -1207,7 +1319,7 @@ class MainWindow(QMainWindow):
             worker.deleteLater()
         self._ffmpeg_check_worker = None
         self._ffmpeg_recheck_requested = False
-        if recheck:
+        if recheck and not self._closing:
             self._check_ffmpeg()
 
     def _open_output_directory(self) -> None:
@@ -1282,6 +1394,8 @@ class MainWindow(QMainWindow):
                         persisted = self.queue_manager.cancel(item.id)
                         if persisted is not None:
                             self.queue_model.update_item(persisted)
+        self._closing = True
+        if active:
             workers = [
                 worker for worker in (self._analysis_worker, self._download_worker) if worker
             ]
@@ -1291,15 +1405,19 @@ class MainWindow(QMainWindow):
                     self._tr("dialog.worker_stopping.title"),
                     self._tr("dialog.worker_stopping.message"),
                 )
+                self._closing = False
                 event.ignore()
                 return
         if self._ffmpeg_check_worker and self._ffmpeg_check_worker.isRunning():
+            if isinstance(self._ffmpeg_check_worker, RuntimeToolsWorker):
+                self._ffmpeg_check_worker.cancel()
             if not self._ffmpeg_check_worker.wait(11_000):
                 QMessageBox.warning(
                     self,
                     self._tr("dialog.ffmpeg_stopping.title"),
                     self._tr("dialog.ffmpeg_stopping.message"),
                 )
+                self._closing = False
                 event.ignore()
                 return
         self._save_settings()

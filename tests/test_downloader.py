@@ -75,6 +75,26 @@ def test_audio_options_match_cli_source_selection_without_forcing_ffmpeg(
     ]
 
 
+def test_download_options_use_managed_deno_without_remote_components(tmp_path: Path) -> None:
+    deno = tmp_path / "managed tools" / "deno.exe"
+    downloader = Downloader(
+        DownloadSettings(destination_directory=str(tmp_path)),
+        MetadataSettings(),
+        tmp_path / "archive.txt",
+        js_runtime_path=deno,
+    )
+    item = DownloadItem.new(
+        "https://example.test/video",
+        cleaned_title="Track",
+        download_mode=DownloadMode.AUDIO,
+    )
+
+    options = downloader._options(item, tmp_path / "Track.m4a")
+
+    assert options["js_runtimes"] == {"deno": {"path": str(deno)}}
+    assert "remote_components" not in options
+
+
 def test_audio_http_403_retries_once_through_ffmpeg(tmp_path: Path) -> None:
     snapshots = []
     downloader = Downloader(

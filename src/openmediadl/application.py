@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from openmediadl.appearance import AppearanceController
 from openmediadl.core.ffmpeg_service import FFmpegService
 from openmediadl.core.queue_manager import QueueManager
+from openmediadl.core.runtime_tools import RuntimeToolsService
 from openmediadl.core.thumbnail_service import ThumbnailService
 from openmediadl.database.connection import Database
 from openmediadl.database.repositories import SettingsRepository, WindowStateRepository
@@ -47,6 +48,7 @@ class ApplicationPaths:
     database_file: Path
     archive_file: Path
     bundled_tools_dir: Path
+    managed_tools_dir: Path | None = None
 
     @classmethod
     def discover(cls) -> ApplicationPaths:
@@ -90,6 +92,10 @@ class ApplicationPaths:
             database_file=database_file,
             archive_file=archive_file,
             bundled_tools_dir=bundle_root / "tools",
+            # Runtime tools are application assets, not legacy queue data. Keep
+            # them under the current product name even when an old database is
+            # reused in-place.
+            managed_tools_dir=new_base / "tools",
         )
 
     def create(self) -> None:
@@ -172,6 +178,11 @@ def run_application(argv: list[str] | None = None) -> int:
         translator = Translator(appearance.language)
         window_state = WindowStateRepository(database)
         ffmpeg_service = FFmpegService(paths.bundled_tools_dir)
+        managed_tools_dir = paths.managed_tools_dir or (paths.data_dir / "tools")
+        runtime_tools_service = RuntimeToolsService(
+            managed_tools_dir,
+            paths.bundled_tools_dir,
+        )
         thumbnail_service = ThumbnailService(paths.cache_dir / "thumbnails")
         window = MainWindow(
             paths,
@@ -182,6 +193,7 @@ def run_application(argv: list[str] | None = None) -> int:
             thumbnail_service,
             translator=translator,
             appearance_controller=appearance_controller,
+            runtime_tools_service=runtime_tools_service,
         )
         window.show()
         LOGGER.info("%s started successfully", PRODUCT_NAME)

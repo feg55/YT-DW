@@ -35,6 +35,7 @@ class AnalysisOptions:
     cookies_profile: str | None = None
     socket_timeout: float = 30.0
     retries: int = 5
+    js_runtime_path: str | None = None
 
 
 @dataclass(slots=True)
@@ -116,6 +117,10 @@ class Analyzer:
             "retries": self.options.retries,
             "noplaylist": False,
         }
+        if self.options.js_runtime_path:
+            options["js_runtimes"] = {
+                "deno": {"path": self.options.js_runtime_path},
+            }
         if self.entry_callback is not None:
             options["match_filter"] = self._capture_entry
         browser = normalize_browser_choice(self.options.cookies_browser)

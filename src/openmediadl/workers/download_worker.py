@@ -35,6 +35,8 @@ class DownloadQueueWorker(QThread):
         download_settings: DownloadSettings,
         metadata_settings: MetadataSettings,
         archive_path: Path,
+        *,
+        js_runtime_path: str | None = None,
     ) -> None:
         super().__init__()
         # Workers own their mutable queue state. The table model keeps the GUI
@@ -43,6 +45,7 @@ class DownloadQueueWorker(QThread):
         self._download_settings = deepcopy(download_settings)
         self._metadata_settings = deepcopy(metadata_settings)
         self._archive_path = archive_path
+        self._js_runtime_path = js_runtime_path
         self._cancel_all = threading.Event()
         self._paused = threading.Event()
         self._lock = threading.Lock()
@@ -162,6 +165,7 @@ class DownloadQueueWorker(QThread):
             cancel_event,
             self._on_progress,
             self._on_phase,
+            js_runtime_path=self._js_runtime_path,
         )
         try:
             result = downloader.download(item)

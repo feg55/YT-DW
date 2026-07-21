@@ -63,8 +63,9 @@ project artwork is the application icon described in [docs/visual-assets.md](doc
   verification have succeeded.
 - Report yt-dlp progress through structured hooks and show concise failures in the progress area;
   full diagnostic details remain available in rotating log files.
-- Detect FFmpeg and FFprobe from `PATH`, an optional local tools directory, or a directory selected
-  in advanced settings.
+- On Windows, automatically install verified FFmpeg, FFprobe, and Deno builds into the current
+  user's application-data directory without administrator rights. A manually selected FFmpeg
+  directory still takes precedence.
 - Retry authentication-protected media with cookies from the OS default browser, then from locally
   detected Chrome, Firefox, Edge, Opera, and other supported browsers. An explicitly selected
   browser and profile is tried first. Public media is always attempted without cookies.
@@ -76,14 +77,13 @@ project artwork is the application icon described in [docs/visual-assets.md](doc
 
 ## Requirements
 
-- Python 3.12 or newer
-- FFmpeg and FFprobe for audio extraction, conversion, merging, and most metadata operations
-- Windows, Linux, or macOS; Windows is the first packaged target
-- Network access to the requested media source
+- The packaged release: Windows 10 or Windows 11 on x86-64
+- Running from source: Python 3.12 or newer
+- Linux and macOS source runs: FFmpeg, FFprobe, and Deno 2.3 or newer on `PATH`
+- Network access to the requested media source and, on the first clean Windows launch, GitHub Releases
 
-Some yt-dlp extractors also require a supported JavaScript runtime such as Deno or Node. Install
-one separately if yt-dlp requests it. YT-DW does not fetch runtimes, FFmpeg, or other
-third-party executables.
+The Windows release prepares FFmpeg, FFprobe, and Deno automatically on first launch. Python, Qt,
+yt-dlp, and the EJS challenge scripts are already inside the single executable.
 
 ## Install and run from source
 
@@ -110,22 +110,26 @@ python3.12 -m venv .venv
 `requirements-lock.txt` contains the reviewed, universal dependency graph used by development and
 CI. Compatible package ranges are declared separately in `pyproject.toml`.
 
-## FFmpeg setup
+## Automatic runtime tools
 
-1. Obtain a build through the [official FFmpeg download page](https://ffmpeg.org/download.html) or
-   your operating system's trusted package manager.
-2. Keep the executables outside this repository.
-3. Add the directory containing `ffmpeg` and `ffprobe` to `PATH`, or select it in YT-DW's
-   advanced settings.
-4. Verify both commands in a terminal:
+On a clean Windows profile YT-DW downloads pinned archives for FFmpeg 8.1.2 and Deno 2.9.3. The
+download is about 146 MiB and happens only when a valid system, manual, bundled, or previously
+managed installation cannot be found. Files are stored below `%LOCALAPPDATA%\YT-DW\tools`; no
+system-wide `PATH`, registry, or `Program Files` changes are made. The extracted tools occupy
+about 290 MiB; additional temporary disk space is required while the archives and one-file
+application are being unpacked.
 
-```text
-ffmpeg -version
-ffprobe -version
-```
+Before activation, every archive is constrained by its expected size, verified against an embedded
+SHA-256 digest, selectively extracted into a staging directory, and validated by running each
+tool's version command. A failed or cancelled setup does not replace a working installation. Two
+simultaneous application instances coordinate through an inter-process lock. The status bar shows
+download progress and offers a retry after recoverable network errors.
 
-YT-DW validates both executables before starting operations that depend on them. FFmpeg is
-not bundled in the repository, source distribution, or default PyInstaller build.
+The pinned archives come directly from the upstream
+[Gyan FFmpeg Windows release](https://github.com/GyanD/codexffmpeg/releases/tag/8.1.2) and
+[Deno release](https://github.com/denoland/deno/releases/tag/v2.9.3). Advanced settings retain an
+optional custom FFmpeg directory for offline or centrally managed environments. Source runs on
+other operating systems continue to use locally installed tools.
 
 ## Metadata and cover behavior
 
@@ -293,7 +297,8 @@ tools retain their own licenses:
 - [yt-dlp-ejs](https://github.com/yt-dlp/ejs) — The Unlicense, with ISC- and MIT-licensed components
 - [Pillow](https://python-pillow.github.io/) — HPND License
 - [Mutagen](https://mutagen.readthedocs.io/) — GPL-2.0-or-later
-- [FFmpeg](https://ffmpeg.org/legal.html) — LGPL or GPL, depending on the external build
+- [Gyan FFmpeg Essentials](https://www.gyan.dev/ffmpeg/builds/) — GPLv3
+- [Deno](https://github.com/denoland/deno) — MIT License
 - [PyInstaller](https://pyinstaller.org/) — GPL-2.0-or-later with an application-distribution
   exception
 

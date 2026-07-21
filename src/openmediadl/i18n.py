@@ -33,6 +33,7 @@ _ENGLISH: Final = MappingProxyType(
         "action.remove_completed": "Remove completed",
         "action.resume_queue": "Resume queue",
         "action.retry_failed": "Retry failed",
+        "action.retry_tools": "Retry tool setup",
         "action.save": "Save",
         "action.settings": "Advanced settings…",
         "common.none": "None",
@@ -60,6 +61,8 @@ _ENGLISH: Final = MappingProxyType(
         "log.recalculated": "Recalculated metadata for {count} item(s).",
         "log.retry_ready": "Marked {count} failed item(s) ready to retry.",
         "log.starting_queue": "Starting {count} queued item(s).",
+        "log.tools_error": "Automatic tool setup: {message}",
+        "log.tools_ready": "FFmpeg, FFprobe, and the YouTube runtime are ready.",
         "mode.audio": "Audio only — M4A",
         "mode.video": "Video",
         "metadata.channel_album_artist": "Use channel name as album artist",
@@ -92,17 +95,17 @@ _ENGLISH: Final = MappingProxyType(
         "dialog.clear_all_failed.message": "Download state could not be cleared: {message}",
         "dialog.clear_all_failed.title": "Could not clear download state",
         "dialog.checking_ffmpeg.message": (
-            "FFmpeg is being checked in the background. Start the queue again when the check "
-            "finishes."
+            "Required tools are being checked or installed in the background. Start the queue "
+            "again when setup finishes."
         ),
-        "dialog.checking_ffmpeg.title": "Checking FFmpeg",
+        "dialog.checking_ffmpeg.title": "Preparing required tools",
         "dialog.choose_destination": "Choose download destination",
         "dialog.destination_required.message": "Choose an output directory first.",
         "dialog.destination_required.title": "Destination required",
         "dialog.destination_unavailable.title": "Destination unavailable",
         "dialog.ffmpeg_required.message": (
-            "Downloads require both FFmpeg and FFprobe for extraction, merging, and metadata. "
-            "Install them or select their directory in Settings."
+            "Automatic setup could not prepare FFmpeg and FFprobe. Check the connection and "
+            "press Retry, or select an existing FFmpeg directory in Settings."
         ),
         "dialog.ffmpeg_required.title": "FFmpeg required",
         "dialog.invalid_url.title": "Invalid URL",
@@ -179,13 +182,14 @@ _ENGLISH: Final = MappingProxyType(
         "settings.cookies_system": "Automatic (system browser + fallback)",
         "settings.delay": "Delay between items",
         "settings.ffmpeg_check_after_save": (
-            "FFmpeg will be checked in the background after saving."
+            "FFmpeg and the YouTube runtime are installed automatically in your user profile. "
+            "The custom FFmpeg directory is optional."
         ),
-        "settings.ffmpeg_directory": "FFmpeg directory",
+        "settings.ffmpeg_directory": "Custom FFmpeg directory",
         "settings.ffmpeg_selected_check_after_save": (
             "The selected directory will be checked in the background after saving."
         ),
-        "settings.ffmpeg_status": "FFmpeg status",
+        "settings.ffmpeg_status": "Required tools",
         "settings.fragment_retries": "Fragment retries",
         "settings.parallel_downloads": "Parallel downloads",
         "settings.remember_last_tab": "Restore the last opened main tab",
@@ -213,6 +217,11 @@ _ENGLISH: Final = MappingProxyType(
         "status.analyzed": "Analyzed {current}",
         "status.analyzed_total": "Analyzed {current} / {total}",
         "status.checking_ffmpeg": "Checking FFmpeg/FFprobe…",
+        "status.downloading_tool": "Downloading {tool}: {percent}%",
+        "status.installing_tool": "Installing {tool}…",
+        "status.preparing_tools": "Preparing FFmpeg and the YouTube runtime…",
+        "status.tools_partial": "Some required tools are unavailable — see the log",
+        "status.tools_ready": "Required tools are ready",
         "status.cleared_all": "Queue, history, and download archive cleared.",
         "status.destination_updated": (
             "Destination updated; manual metadata edits were preserved."
@@ -286,6 +295,7 @@ _RUSSIAN: Final = MappingProxyType(
         "action.remove_completed": "Удалить завершённые",
         "action.resume_queue": "Продолжить очередь",
         "action.retry_failed": "Повторить ошибки",
+        "action.retry_tools": "Повторить установку",
         "action.save": "Сохранить",
         "action.settings": "Расширенные настройки…",
         "common.none": "Нет",
@@ -310,6 +320,8 @@ _RUSSIAN: Final = MappingProxyType(
         "log.recalculated": "Метаданные пересчитаны. Элементов: {count}.",
         "log.retry_ready": "Готовы к повтору после ошибки: {count}.",
         "log.starting_queue": "Запуск очереди. Элементов: {count}.",
+        "log.tools_error": "Автоматическая установка инструментов: {message}",
+        "log.tools_ready": "FFmpeg, FFprobe и среда YouTube готовы к работе.",
         "mode.audio": "Только аудио — M4A",
         "mode.video": "Видео",
         "metadata.channel_album_artist": "Использовать канал как исполнителя альбома",
@@ -342,16 +354,17 @@ _RUSSIAN: Final = MappingProxyType(
         "dialog.clear_all_failed.message": "Не удалось очистить данные загрузок: {message}",
         "dialog.clear_all_failed.title": "Ошибка очистки",
         "dialog.checking_ffmpeg.message": (
-            "FFmpeg проверяется в фоне. Запустите очередь ещё раз после завершения проверки."
+            "Необходимые инструменты проверяются или устанавливаются в фоне. Запустите очередь "
+            "ещё раз после завершения подготовки."
         ),
-        "dialog.checking_ffmpeg.title": "Проверка FFmpeg",
+        "dialog.checking_ffmpeg.title": "Подготовка инструментов",
         "dialog.choose_destination": "Выберите папку загрузок",
         "dialog.destination_required.message": "Сначала выберите папку назначения.",
         "dialog.destination_required.title": "Не выбрана папка",
         "dialog.destination_unavailable.title": "Папка недоступна",
         "dialog.ffmpeg_required.message": (
-            "Для извлечения, объединения и метаданных нужны FFmpeg и FFprobe. Установите их "
-            "или выберите папку в настройках."
+            "Не удалось автоматически подготовить FFmpeg и FFprobe. Проверьте подключение и "
+            "нажмите «Повторить установку» либо выберите готовую папку FFmpeg в настройках."
         ),
         "dialog.ffmpeg_required.title": "Требуется FFmpeg",
         "dialog.invalid_url.title": "Некорректная ссылка",
@@ -428,12 +441,15 @@ _RUSSIAN: Final = MappingProxyType(
         ),
         "settings.cookies_system": "Автоматически (системный + резервные)",
         "settings.delay": "Задержка между файлами",
-        "settings.ffmpeg_check_after_save": ("FFmpeg будет проверен в фоне после сохранения."),
-        "settings.ffmpeg_directory": "Папка FFmpeg",
+        "settings.ffmpeg_check_after_save": (
+            "FFmpeg и среда YouTube устанавливаются автоматически в профиль пользователя. "
+            "Своя папка FFmpeg необязательна."
+        ),
+        "settings.ffmpeg_directory": "Своя папка FFmpeg",
         "settings.ffmpeg_selected_check_after_save": (
             "Выбранная папка будет проверена в фоне после сохранения."
         ),
-        "settings.ffmpeg_status": "Состояние FFmpeg",
+        "settings.ffmpeg_status": "Необходимые инструменты",
         "settings.fragment_retries": "Повторы фрагментов",
         "settings.parallel_downloads": "Одновременные загрузки",
         "settings.remember_last_tab": "Восстанавливать последнюю открытую вкладку",
@@ -461,6 +477,11 @@ _RUSSIAN: Final = MappingProxyType(
         "status.analyzed": "Проанализировано: {current}",
         "status.analyzed_total": "Проанализировано: {current} из {total}",
         "status.checking_ffmpeg": "Проверка FFmpeg/FFprobe…",
+        "status.downloading_tool": "Загрузка {tool}: {percent}%",
+        "status.installing_tool": "Установка {tool}…",
+        "status.preparing_tools": "Подготовка FFmpeg и среды YouTube…",
+        "status.tools_partial": "Часть инструментов недоступна — подробности в журнале",
+        "status.tools_ready": "Необходимые инструменты готовы",
         "status.cleared_all": "Очередь, история и архив загрузок очищены.",
         "status.destination_updated": ("Папка обновлена; ручные изменения метаданных сохранены."),
         "status.ffmpeg_available": "FFmpeg доступен",

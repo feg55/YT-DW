@@ -27,6 +27,39 @@ def test_parse_urls_rejects_non_http_input() -> None:
         parse_urls("not a url")
 
 
+def test_analyzer_passes_managed_deno_path_to_yt_dlp(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class FakeYoutubeDL:
+        def __init__(self, options: dict[str, Any]) -> None:
+            captured.update(options)
+
+        def __enter__(self) -> FakeYoutubeDL:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        @staticmethod
+        def extract_info(_url: str, *, download: bool) -> dict[str, Any]:
+            assert download is False
+            return {"id": "video", "title": "Track"}
+
+    monkeypatch.setattr("openmediadl.core.analyzer.yt_dlp.YoutubeDL", FakeYoutubeDL)
+
+    entries = list(
+        Analyzer(AnalysisOptions(js_runtime_path=r"C:\Users\Test\YT-DW\tools\deno.exe")).analyze(
+            ["https://example.test/video"]
+        )
+    )
+
+    assert len(entries) == 1
+    assert captured["js_runtimes"] == {"deno": {"path": r"C:\Users\Test\YT-DW\tools\deno.exe"}}
+    assert "remote_components" not in captured
+
+
 def test_analysis_worker_continues_after_one_url_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     def analyze(self: Analyzer, urls: list[str]) -> Iterator[AnalyzedEntry]:
         source = urls[0]

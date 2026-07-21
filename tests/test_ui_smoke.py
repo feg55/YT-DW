@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -15,6 +16,7 @@ from openmediadl.application import ApplicationPaths
 from openmediadl.core.analyzer import AnalyzedEntry
 from openmediadl.core.ffmpeg_service import FFmpegService
 from openmediadl.core.queue_manager import QueueManager
+from openmediadl.core.runtime_tools import RuntimeToolsStatus
 from openmediadl.core.thumbnail_service import ThumbnailService
 from openmediadl.database.connection import Database
 from openmediadl.database.repositories import SettingsRepository, WindowStateRepository
@@ -53,6 +55,7 @@ def _window(
     database: Database,
     *,
     translator: Translator | None = None,
+    runtime_tools_service: Any | None = None,
 ) -> MainWindow:
     return MainWindow(
         paths,
@@ -62,6 +65,7 @@ def _window(
         FFmpegService(paths.bundled_tools_dir),
         ThumbnailService(paths.cache_dir / "thumbnails"),
         translator=translator,
+        runtime_tools_service=runtime_tools_service,
     )
 
 
@@ -114,6 +118,101 @@ def test_main_window_constructs_three_persistent_tabs(tmp_path: Path) -> None:
         window.table.itemDelegateForColumn(int(Column.CLEANED_TITLE)),
         TwoLineTextDelegate,
     )
+
+    _close(window, database)
+    del app
+
+
+def test_automatic_runtime_tool_setup_enables_actions_and_records_deno(
+    tmp_path: Path,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    paths = _paths(tmp_path)
+    database = Database(paths.database_file)
+    tool_directory = tmp_path / "managed tools"
+    expected = RuntimeToolsStatus(
+        ffmpeg=tool_directory / "ffmpeg.exe",
+        ffprobe=tool_directory / "ffprobe.exe",
+        deno=tool_directory / "deno.exe",
+        ffmpeg_version="ffmpeg version test",
+        ffprobe_version="ffprobe version test",
+        deno_version="deno 2.9.3",
+        ffmpeg_source="managed",
+        deno_source="managed",
+    )
+
+    class ReadyService:
+        @staticmethod
+        def provision(
+            _manual: str | None,
+            *,
+            progress: Any,
+            is_cancelled: Any,
+        ) -> RuntimeToolsStatus:
+            assert not is_cancelled()
+            progress("ffmpeg", 100, 100)
+            return expected
+
+    window = _window(paths, database, runtime_tools_service=ReadyService())
+    worker = window._ffmpeg_check_worker
+    assert worker is not None
+    assert worker.wait(2000)
+    QApplication.processEvents()
+
+    assert window._ffmpeg_installation is not None
+    assert window._ffmpeg_installation.available
+    assert window._js_runtime_path == str(expected.deno)
+    assert window.analyze_button.isEnabled()
+    assert window.download_button.isEnabled()
+    assert window.runtime_tools_progress.isHidden()
+    assert window.runtime_tools_retry_button.isHidden()
+
+    _close(window, database)
+    del app
+
+
+def test_partial_runtime_tool_setup_keeps_media_actions_disabled(
+    tmp_path: Path,
+) -> None:
+    app = QApplication.instance() or QApplication([])
+    paths = _paths(tmp_path)
+    database = Database(paths.database_file)
+    tool_directory = tmp_path / "managed tools"
+    partial = RuntimeToolsStatus(
+        ffmpeg=tool_directory / "ffmpeg.exe",
+        ffprobe=tool_directory / "ffprobe.exe",
+        deno=None,
+        ffmpeg_version="ffmpeg version test",
+        ffprobe_version="ffprobe version test",
+        ffmpeg_source="managed",
+        errors=("Deno: network unavailable",),
+    )
+
+    class PartialService:
+        @staticmethod
+        def provision(
+            _manual: str | None,
+            *,
+            progress: Any,
+            is_cancelled: Any,
+        ) -> RuntimeToolsStatus:
+            assert not is_cancelled()
+            progress("deno", 0, 100)
+            return partial
+
+    window = _window(paths, database, runtime_tools_service=PartialService())
+    worker = window._ffmpeg_check_worker
+    assert worker is not None
+    assert worker.wait(2000)
+    QApplication.processEvents()
+
+    assert window._ffmpeg_installation is not None
+    assert window._ffmpeg_installation.available
+    assert window._js_runtime_path is None
+    assert not window.analyze_button.isEnabled()
+    assert not window.download_button.isEnabled()
+    assert window.runtime_tools_progress.isHidden()
+    assert not window.runtime_tools_retry_button.isHidden()
 
     _close(window, database)
     del app

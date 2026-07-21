@@ -143,6 +143,7 @@ def test_discover_uses_yt_dw_paths_for_new_windows_install(
     assert paths.cache_dir == tmp_path / "YT-DW" / "cache"
     assert paths.database_file == tmp_path / "YT-DW" / "yt-dw.sqlite3"
     assert paths.archive_file == tmp_path / "YT-DW" / "yt-dw-archive.txt"
+    assert paths.managed_tools_dir == tmp_path / "YT-DW" / "tools"
 
 
 def test_discover_reuses_legacy_database_without_moving_user_data(
@@ -163,6 +164,7 @@ def test_discover_reuses_legacy_database_without_moving_user_data(
     assert paths.cache_dir == legacy / "cache"
     assert paths.database_file == legacy / "openmediadl.sqlite3"
     assert paths.archive_file == legacy / "yt-dlp-archive.txt"
+    assert paths.managed_tools_dir == tmp_path / "YT-DW" / "tools"
 
 
 def test_discover_ignores_empty_legacy_directory(

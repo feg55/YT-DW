@@ -102,5 +102,15 @@ $RECYCLE.BIN/
 /tools/**/ffmpeg.exe
 /tools/**/ffprobe
 /tools/**/ffprobe.exe
+/tools/deno
+/tools/deno.exe
+/tools/**/deno
+/tools/**/deno.exe
+/src/openmediadl/tools/**/ffmpeg
+/src/openmediadl/tools/**/ffmpeg.exe
+/src/openmediadl/tools/**/ffprobe
+/src/openmediadl/tools/**/ffprobe.exe
+/src/openmediadl/tools/**/deno
+/src/openmediadl/tools/**/deno.exe
 !/tools/README.md
 !/tools/.gitkeep

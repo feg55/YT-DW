@@ -157,6 +157,7 @@ class Downloader:
         progress_callback: ProgressCallback | None = None,
         phase_callback: PhaseCallback | None = None,
         thumbnail_service: ThumbnailService | None = None,
+        js_runtime_path: str | Path | None = None,
     ) -> None:
         self.download_settings = download_settings
         self.metadata_settings = metadata_settings
@@ -167,6 +168,7 @@ class Downloader:
         self.thumbnail_service = thumbnail_service or ThumbnailService(
             archive_path.parent / "thumbnail-cache"
         )
+        self.js_runtime_path = str(js_runtime_path) if js_runtime_path else None
         self._last_progress_emit = 0.0
         self._active_item: DownloadItem | None = None
 
@@ -371,6 +373,10 @@ class Downloader:
         }
         if self.download_settings.ffmpeg_directory:
             options["ffmpeg_location"] = self.download_settings.ffmpeg_directory
+        if self.js_runtime_path:
+            options["js_runtimes"] = {
+                "deno": {"path": self.js_runtime_path},
+            }
         if self.download_settings.bandwidth_limit:
             options["ratelimit"] = self.download_settings.bandwidth_limit
         if item.download_mode is DownloadMode.AUDIO:
