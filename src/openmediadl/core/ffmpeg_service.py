@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _PATH_UPDATE_LOCK = threading.Lock()
+_CREATE_NO_WINDOW = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +89,7 @@ class FFmpegService:
                 text=True,
                 timeout=5,
                 check=False,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                creationflags=_CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
         except (OSError, subprocess.SubprocessError):
             return ""

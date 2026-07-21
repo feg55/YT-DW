@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 import platform
 import subprocess
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 from yt_dlp.cookies import CookieLoadError
 
@@ -290,14 +292,16 @@ def _platform_default_browser_identifier() -> str | None:
 
 def _windows_default_browser_identifier() -> str | None:
     try:
-        import winreg
+        # Import dynamically so Linux type-checking does not resolve the
+        # platform-specific ``winreg`` module against an empty stub.
+        registry: Any = importlib.import_module("winreg")
 
         path = (
             r"Software\Microsoft\Windows\Shell\Associations"
             r"\UrlAssociations\https\UserChoice"
         )
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
-            value, _kind = winreg.QueryValueEx(key, "ProgId")
+        with registry.OpenKey(registry.HKEY_CURRENT_USER, path) as key:
+            value, _kind = registry.QueryValueEx(key, "ProgId")
         return str(value)
     except (ImportError, OSError):
         return None

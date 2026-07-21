@@ -47,6 +47,7 @@ _MAX_MEMBER_SIZE = 512 * 1024 * 1024
 _MAX_COMPRESSION_RATIO = 200
 _LOCK_TIMEOUT_SECONDS = 15 * 60
 _DENO_MIN_VERSION = (2, 3, 0)
+_CREATE_NO_WINDOW = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
 _ALLOWED_DOWNLOAD_HOSTS = frozenset(
     {
         "github.com",
@@ -583,7 +584,7 @@ class RuntimeToolsService:
                 text=True,
                 timeout=8,
                 check=False,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                creationflags=_CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
         except (OSError, subprocess.SubprocessError):
             return ""
@@ -635,7 +636,7 @@ class RuntimeToolsService:
     def _lock_file(handle: Any) -> None:
         handle.seek(0)
         if os.name == "nt":
-            import msvcrt
+            msvcrt: Any = __import__("msvcrt")
 
             msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
             return
@@ -646,7 +647,7 @@ class RuntimeToolsService:
     def _unlock_file(handle: Any) -> None:
         handle.seek(0)
         if os.name == "nt":
-            import msvcrt
+            msvcrt: Any = __import__("msvcrt")
 
             try:
                 msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
